@@ -1,22 +1,22 @@
 # Site settings
-title: Btz's Blog
-SEOTitle: 半天钟的博客 | Btz's Blog
+title: Btz Blog
+SEOTitle: 半天钟的博客 | Btz Blog
 header-img: img/home-bg.jpg
 email: tjutbtz@163.com
-description: "还在修改中的博客模板"
-keyword: ""
+description: "Every day to be a little better"
+keyword: "BTZ,半天钟"
 url: "https://halfclock.github.io/"              # your host, for absolute URL
-baseurl: "/"         # for example, '/blog' if your blog hosted on 'host/blog'
+baseurl: "/halfclock.github.io"         # for example, '/blog' if your blog hosted on 'host/blog'
 
 
 
 # SNS settings
 RSS: false
-weibo_username:     huxpro
-zhihu_username:     huxpro
-github_username:    huxpro
+#weibo_username:     huxpro
+#zhihu_username:     huxpro
+github_username:    HalfClock
 #twitter_username:  huxpro
-facebook_username:  huxpro
+#facebook_username:  huxpro
 
 
 
@@ -32,7 +32,7 @@ anchorjs: true                          # if you want to customize anchor. check
 
 # Gems
 # from PR#40, to support local preview for Jekyll 3.0
-gems: [jekyll-paginate]
+plugins: [jekyll-paginate]
 
 
 
@@ -52,24 +52,24 @@ kramdown:
 # Duoshuo settings
 duoshuo_username: huxblog
 # Share component is depend on Comment so we can NOT use share only.
-duoshuo_share: true                     # set to false if you want to use Comment without Sharing
+duoshuo_share: false                     # set to false if you want to use Comment without Sharing
 
 
 
 
 # Analytics settings
 # Baidu Analytics
-ba_track_id: 4cc1f2d8f3067386cc5cdb626a202900
+ba_track_id: 304af48dfd14015900c64946bc7b1c32
 # Google Analytics
-ga_track_id: 'UA-49627206-1'            # Format: UA-xxxxxx-xx
-ga_domain: huangxuan.me
+#ga_track_id: 'UA-49627206-1'            # Format: UA-xxxxxx-xx
+#ga_domain: huangxuan.me
 
 
 
 # Sidebar settings
 sidebar: true                           # whether or not using Sidebar.
-sidebar-about-description: "这里是 Btz 的 blog"
-sidebar-avatar: /img/avatar-hux.jpg      # use absolute URL, seeing it's used in both `/` and `/about/`
+sidebar-about-description: "哪里有天才，我是把别人喝咖啡 </br> 的功夫，都用在工作上的。 </br>  &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp— 鲁迅"
+sidebar-avatar: /halfclock.github.io/img/avatar-btz.jpg      # use absolute URL, seeing it's used in both `/` and `/about/`
 
 
 
@@ -82,19 +82,21 @@ featured-condition-size: 1              # A tag will be featured if the size of 
 # Friends
 friends: [
     {
-        title: "Hux Blog",
-        href: "#"
-    },{
-        title: "Foo",
-        href: "#"
-    },{
-        title: "Bar",
-        href: "#"
-    },{
-        title: "Example Friends",
-        href: "#"
-    },{
-        title: "It helps SEO",
-        href: "#"
-    }
+        title: "Zhang99969",
+        href: "https://zhang99969.github.io"
+    },
+    {
+        title: "kernellmd",
+        href: "https://kernellmd.github.io"
+    },
+#    {
+#        title: "Bar",
+#        href: "#"
+#    },{
+#        title: "Example Friends",
+#        href: "#"
+#    },{
+#        title: "It helps SEO",
+#        href: "#"
+#    }
 ]
