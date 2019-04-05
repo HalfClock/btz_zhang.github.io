@@ -125,3 +125,20 @@ header-img: "img/about-bg.jpg"
 </script>
 <!-- disqus 公共JS代码 end -->
 {% endif %}
+
+{% if site.gitment_isuse %}
+<div id="gitmentContainer"></div>
+<link rel="stylesheet" href="https://imsun.github.io/gitment/style/default.css">
+<script src="https://imsun.github.io/gitment/dist/gitment.browser.js"></script>
+<script>
+    var gitment = new Gitment({
+        owner: '{{site.github_username}}',
+        repo: '{{site.gitment_repo}}',
+        oauth: {
+            client_id: '{{site.gitment_client_id}}',
+            client_secret: '{{site.client_secret}}',
+        },
+    });
+    gitment.render('gitmentContainer');
+</script>
+{% endif %}
