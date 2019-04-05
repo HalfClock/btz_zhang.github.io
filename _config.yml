@@ -14,7 +14,7 @@ baseurl: "/halfclock.github.io"         # for example, '/blog' if your blog host
 RSS: false
 #weibo_username:     huxpro
 #zhihu_username:     huxpro
-github_username:    HalfClock
+github_username: HalfClock
 #twitter_username:  huxpro
 #facebook_username:  huxpro
 
@@ -58,8 +58,8 @@ kramdown:
 #gitment settings
 gitment_isuse: ture
 gitment_repo: halfclock.github.io
-gitment_client_id: 3e7c37c805bd309dbe02
-gitment_client_secret: 9657cf7cb2974585e9677ac48fcda058ce1e6fc0
+gitment_client_id: 60beba58555896302991
+gitment_client_secret: b1194e21e6dc77671b57283a1c2e30f37a255c1a
 
 
 # Analytics settings
