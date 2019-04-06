@@ -82,7 +82,7 @@ ba_track_id: 304af48dfd14015900c64946bc7b1c32
 # Sidebar settings
 sidebar: true                           # whether or not using Sidebar.
 sidebar-about-description: "哪里有天才，我是把别人喝咖啡 </br> 的功夫，都用在工作上的。 </br>  &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp  — 鲁迅"
-sidebar-avatar: img/avatar-btz.jpg      # use absolute URL, seeing it's used in both `/` and `/about/`
+sidebar-avatar: /img/avatar-btz.jpg      # use absolute URL, seeing it's used in both `/` and `/about/`
 
 
 # Featured Tags
