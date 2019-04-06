@@ -6,9 +6,10 @@ email: tjutbtz@163.com
 description: "Every day to be a little better"
 keyword: "BTZ,半天钟"
 url: "https://halfclock.github.io/"              # your host, for absolute URL
-baseurl: "/halfclock.github.io"         # for example, '/blog' if your blog hosted on 'host/blog'
+baseurl: ""         # for example, '/blog' if your blog hosted on 'host/blog'
 
 
+future: true
 
 # SNS settings
 RSS: false
@@ -20,18 +21,23 @@ github_username: HalfClock
 
 
 
+
 # Build settings
 # from 2016, 'pygments' is unsupported on GitHub Pages. Use 'rouge' for highlighting instead.
 highlighter: rouge
 permalink: pretty
 paginate: 10
-exclude: ["less","node_modules","Gruntfile.js","package.json","README.md"]
+exclude: ["less","node_modules","Gruntfile.js","package.json","README.md","README.zh.md"]
 anchorjs: true                          # if you want to customize anchor. check out line:181 of `post.html`
+# If you have timezone issue (e.g. #68) in China, uncomment to use this:
+#timezone: CN  
 
 
 
 # Gems
 # from PR#40, to support local preview for Jekyll 3.0
+# make sure you have this gem installed
+# `$ gem install jekyll-paginate`
 plugins: [jekyll-paginate]
 
 
@@ -43,19 +49,20 @@ plugins: [jekyll-paginate]
 markdown: kramdown
 kramdown:
   input: GFM                            # use Github Flavored Markdown !important
+  syntax_highlighter_opts:
+    span:
+      line_numbers: false
+    block:
+      line_numbers: true
+      start_line: 1
 
 
 
 # Disqus settings
+#disqus_username: hux
 
-#disqus_username: halfclock-github-io
-
-# Duoshuo settings
-#duoshuo_username: huxblog
-# Share component is depend on Comment so we can NOT use share only.
-#duoshuo_share: false                     # set to false if you want to use Comment without Sharing
-
-#gitment settings
+# Netease settings
+#netease_comment: false
 gitment_isuse: ture
 gitment_repo: halfclock.github.io
 gitment_client_id: 60beba58555896302991
@@ -63,8 +70,9 @@ gitment_client_secret: b1194e21e6dc77671b57283a1c2e30f37a255c1a
 
 
 # Analytics settings
-# Baidu Analytics
+# Baidu Analytics 
 ba_track_id: 304af48dfd14015900c64946bc7b1c32
+
 # Google Analytics
 #ga_track_id: 'UA-49627206-1'            # Format: UA-xxxxxx-xx
 #ga_domain: huangxuan.me
@@ -74,8 +82,7 @@ ba_track_id: 304af48dfd14015900c64946bc7b1c32
 # Sidebar settings
 sidebar: true                           # whether or not using Sidebar.
 sidebar-about-description: "哪里有天才，我是把别人喝咖啡 </br> 的功夫，都用在工作上的。 </br>  &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp &nbsp  — 鲁迅"
-sidebar-avatar: /halfclock.github.io/img/avatar-btz.jpg      # use absolute URL, seeing it's used in both `/` and `/about/`
-
+sidebar-avatar: img/avatar-btz.jpg      # use absolute URL, seeing it's used in both `/` and `/about/`
 
 
 # Featured Tags
@@ -84,24 +91,35 @@ featured-condition-size: 1              # A tag will be featured if the size of 
 
 
 
+# Progressive Web Apps
+chrome-tab-theme-color: "#000000"
+service-worker: true
+
+
+
+# MathJax rendering for layout:page (e.g. post preview)
+page-mathjax: false
+
+
+
 # Friends
 friends: [
-    {
-        title: "Zhang99969",
-        href: "https://zhang99969.github.io"
-    },
-    {
-        title: "kernellmd",
-        href: "https://kernellmd.github.io"
-    },
-#    {
-#        title: "Bar",
-#        href: "#"
-#    },{
-#        title: "Example Friends",
-#        href: "#"
-#    },{
-#        title: "It helps SEO",
-#        href: "#"
-#    }
+{
+  title: "Zhang99969",
+  href: "https://zhang99969.github.io"
+},
+{
+  title: "kernellmd",
+  href: "https://kernellmd.github.io"
+},
+  #    {
+  #        title: "Bar",
+  #        href: "#"
+  #    },{
+  #        title: "Example Friends",
+  #        href: "#"
+  #    },{
+  #        title: "It helps SEO",
+  #        href: "#"
+  #    }
 ]
