@@ -29,8 +29,8 @@
 1. 手动进入gh-oauth.imsun.net，然后点高级 -> 继续前往gh-oauth.imsun.net，这样在调试的过程中就可以登录了。
 2. 更换资源的url，将源码中的url改为如下链接：
 ```html
-<link rel="stylesheet" href="https://jjeejj.github.io/css/gitment.css">
-<script src="https://jjeejj.github.io/js/gitment.js"></script>
+<link rel="stylesheet" href="https://halfclock.github.io/css/gitment.css">
+<script src="https://halfclock.github.io/js/gitment.js"></script>
 ```
 > 其他一些问题的解决可以参考[Gitment评论功能接入踩坑教程](https://www.jianshu.com/p/57afa4844aaa)
 
@@ -38,6 +38,7 @@
 
 除了换了评论系统，还做了一些更改：
 1. 由于Mini-about中的css文件和js文件都是从http开头的url中获取的、因此有一些浏览器会自动拦截从这些不安全的url加载的组件。**解决办法是将所有被拦截的url的开头都替换成https**，目前有如下几个url需要替换：
+
 head.html中的：
 ```html
     <link href="http://cdn.staticfile.org/font-awesome/4.2.0/css/font-awesome.min.css" rel="stylesheet" type="text/css">
