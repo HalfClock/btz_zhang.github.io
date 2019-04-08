@@ -112,10 +112,11 @@ friends: [
   title: "kernellmd",
   href: "https://kernellmd.github.io"
 },
-  #    {
-  #        title: "Bar",
-  #        href: "#"
-  #    },{
+{
+    title: "inotwant",
+    href: "https://www.inotwant.top"
+},
+#      {
   #        title: "Example Friends",
   #        href: "#"
   #    },{
