@@ -4,15 +4,15 @@
 #### ABPUT ME
 
 
-Hey,This is BanTianZhong,from Beijing University of Posts and Telecommunications。
+Hey,This is BanTianZhong, from Beijing University of Posts and Telecommunications.
 
 
 #### ABOUT THIS BLOG
 
 
-ollow this blog, you may see related technical discussions about Python, Django, Web crawler, algorithms, data analysis, machine learning, etc. I may also share some learning and life trivia here.
+Follow this blog, you may see related technical discussions about Python, Django, Web crawler, algorithms, data analysis, machine learning, etc. I may also share some learning and life trivia here.
 
-It’s awkward to say, learning programming is almost five years old, but there are no achievements to show. There are only a few learning codes for your reference: [My GitHub](https://github.com/HalfClock)
+It’s awkward to say, I learned programming for almost five years old, but there are no achievements to show. There are only a few learning codes for your reference: [My GitHub](https://github.com/HalfClock)
 
 
 #### END
