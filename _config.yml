@@ -66,7 +66,7 @@ kramdown:
 gitment_isuse: ture
 gitment_repo: halfclock.github.io
 gitment_client_id: 60beba58555896302991
-gitment_client_secret: b1194e21e6dc77671b57283a1c2e30f37a255c1a
+gitment_client_secret: e7bdf6f74a057314ec893a4203cb0adb11f6d7ea
 
 
 # Analytics settings
