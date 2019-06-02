@@ -1,7 +1,7 @@
 ---
 layout:     post
-title:      "使用 python 特性管理实例属性"
-subtitle:   "@porperty 装饰器的正确用法和意义"
+title:      "python 使用特性管理实例属性"
+subtitle:   "@property 装饰器的正确用法和意义"
 date:       2019-06-01 22:30:00
 author:     "Btz"
 header-img: "img/bg-python-property.png"
