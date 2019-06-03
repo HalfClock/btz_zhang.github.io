@@ -24,9 +24,9 @@ tags:
 最后的两篇博文则会讲述 python 中的**元编程技术，包括动态创建属性及动态创建类**
 
 # 元编程相关博文的目录及链接
-1. [使用 python 特性管理实例属性](https://halfclock.github.io/2019/06/02/python-property-and-descriptor/)
-2. [浅析 python 属性描述符（上）]()
-3. [浅析 python 属性描述符（下）]()
+1. [使用 python 特性管理实例属性](https://halfclock.github.io/2019/06/01/python-property/)
+2. [浅析 python 属性描述符（上）](https://halfclock.github.io/2019/06/03/python-descriptor_01/)
+3. [浅析 python 属性描述符（下）](https://halfclock.github.io/2019/06/04/python-descriptor_02/)
 4. [python 导入时与运行时]()
 
 # 管理属性的古老方法 -> set( ) / get( )
@@ -105,13 +105,13 @@ class Fruits:
 然而、这样做的弊端也很明显：
 
 1. 首先、**不能够方便的使用 “ . ” 来访问属性了**，编写程序时，还必须多写几个字母。
-2. 一堆 set() 和 get() 方法不仅写起来费劲，而且**容易掩盖住真正重要的 subtotal 方法。**
+2. 一堆 set() 和 get() 方法不仅写起来费劲，而且**容易掩盖住真正重要的业务逻辑方法—— subtotal 方法。**
 3. 如果水果店的老板需要给水果增加一些有同样存储逻辑属性，你**依然得重新编写 set() 和 get() 方法。**
 4. **想要修改某一个 set/get 时，寻找某个属性的 set/get 方法的过程就需要花费大量的时间。**
 
 尽管，像 idea 这种 java IDE 已经有了方便的自动生成 get/set 的功能。但是这依旧没法有效的解决上面几个弊端。
 
-简单的使用 python 的 property 装饰器能够解决第一、二个弊端，如下一节所示。
+简单的使用 python 的 property 装饰器能够解决第一、二个弊端，如下一小节所示。
 
 # 使用 property 管理属性
 使用 property 装饰器管理属性，不仅能够使用 “ . ” 方便的访问属性，还能在存取值时加上自己需要的规则。
