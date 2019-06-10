@@ -17,6 +17,7 @@ tags:
 2. [浅析 python 属性描述符（上）](https://halfclock.github.io/2019/06/03/python-descriptor_01/)
 3. [浅析 python 属性描述符（下）](https://halfclock.github.io/2019/06/04/python-descriptor_02/)
 4. [python 导入时与运行时](https://halfclock.github.io/2019/06/07/python-import-and-running/)
+5. [python 元编程之动态属性](https://halfclock.github.io/2019/06/09/python-metacoding/)
 
 # Review
 

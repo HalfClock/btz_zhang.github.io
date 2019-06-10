@@ -28,6 +28,7 @@ tags:
 2. [浅析 python 属性描述符（上）](https://halfclock.github.io/2019/06/03/python-descriptor_01/)
 3. [浅析 python 属性描述符（下）](https://halfclock.github.io/2019/06/04/python-descriptor_02/)
 4. [python 导入时与运行时](https://halfclock.github.io/2019/06/07/python-import-and-running/)
+5. [python 元编程之动态属性](https://halfclock.github.io/2019/06/09/python-metacoding/)
 
 # 管理属性的古老方法 -> set( ) / get( )
 
@@ -249,6 +250,8 @@ set:苹果的重量
 可以看出，我们已经使用 python 特性解决了古老的 set()/get() 方法所不能解决的两个弊端，**最直观的好处是、我们可以用 “.” 来方便的访问属性了。**
 
 其次，在使用了 `@property` 和 `@特性名.setter` 装饰器以后，**我们可以很清楚的看出哪些方法是用于处理存储逻辑的，哪些是处理业务逻辑的。**
+
+>换句话说、特性解决了统一访问的问题，即无需通过访问方法的方式来访问属性，通过直接访问属性也能够实现存储逻辑的控制。
 
 ---
 
