@@ -397,7 +397,7 @@ class Item(models.Model): # 2
 2. models.Model 类是某元类的实例，Item 继承了 models.Model **只是为了声明自己是 那个元类的实例**，该元类的**作用可以稍稍参考本文的 entity 类装饰器**。
 3. models 模块与 [浅析 python 属性描述符（上）](https://halfclock.github.io/2019/06/03/python-descriptor_01/) 一文中的 model 模块类似，存放着各类属性描述符及其父类，并且还存放着像 models.Model 一样的元类。
 
-这三行代码，几乎将我这六篇元编程相关博文的知识都囊括进去了，不仅**使用了 models.TextField() 属性描述符管理托管类 Item 的实例属性**。而且还**继承了 models.Model 这个元类的实例，实现了类装饰器的效果。**
+这三行代码，几乎将我这六篇元编程相关博文的知识都囊括进去了，不仅**使用了 models.TextField() 属性描述符管理托管类 Item 的实例属性**。而且还**继承了 models.Model 这个元类的实例，实现了动态修改类的效果。**
 
 可以说，**动态创建实例属性、动态修改/定制类**在这三行代码中均有体现。
 
