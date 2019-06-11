@@ -18,6 +18,7 @@ tags:
 3. [浅析 python 属性描述符（下）](https://halfclock.github.io/2019/06/04/python-descriptor_02/)
 4. [python 导入时与运行时](https://halfclock.github.io/2019/06/07/python-import-and-running/)
 5. [python 元编程之动态属性](https://halfclock.github.io/2019/06/09/python-metacoding/)
+6. [python 元编程之类元编程](https://halfclock.github.io/2019/06/10/python-class-metacoding/)
 
 #  前言
 
@@ -184,4 +185,4 @@ pear description
 
 但是使用 `__dict__` 不太安全，因为你永远不知道用户传递的数据是怎样的，规范与否，字典嵌套了几层等都不是我们能控制的，所以我更推荐使用像 [FrozenJSON](https://github.com/fluentpython/example-code/blob/master/19-dyn-attr-prop/oscon/explore0.py) 这样的处理方式，**自己在 `__getattr__(self,name)` 里编写控制代码总是要安心的多。**
 
-除了动态创建属性，python 甚至可以动态创建类，这就**涉及到类的类 —— 元类**。
+除了动态创建属性，python 甚至可以**动态创建/修改类**，这就**涉及到类的类 —— 元类**。
