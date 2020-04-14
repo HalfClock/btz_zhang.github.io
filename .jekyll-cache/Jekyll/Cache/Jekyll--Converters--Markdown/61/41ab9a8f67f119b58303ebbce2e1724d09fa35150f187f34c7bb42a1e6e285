@@ -1,0 +1,577 @@
+I"O�<h1 id="元编程相关博文的目录及链接">元编程相关博文的目录及链接</h1>
+<p>这篇博文是元编程系列博文中的其中一篇、这个系列中其他博文的目录和连接见下：</p>
+
+<ol>
+  <li><a href="https://halfclock.github.io/2019/06/01/python-property/">使用 python 特性管理实例属性</a></li>
+  <li><a href="https://halfclock.github.io/2019/06/03/python-descriptor_01/">浅析 python 属性描述符（上）</a></li>
+  <li><a href="https://halfclock.github.io/2019/06/04/python-descriptor_02/">浅析 python 属性描述符（下）</a></li>
+  <li><a href="https://halfclock.github.io/2019/06/07/python-import-and-running/">python 导入时与运行时</a></li>
+  <li><a href="https://halfclock.github.io/2019/06/09/python-metacoding/">python 元编程之动态属性</a></li>
+  <li><a href="https://halfclock.github.io/2019/06/10/python-class-metacoding/">python 元编程之类元编程</a></li>
+</ol>
+
+<h1 id="前言">前言</h1>
+
+<p>所谓类元编程，与属性元编程对应，<strong>其实就是在运行时动态创建/修改类的技术。</strong></p>
+
+<p>如果你熟悉 python 标准库，那么你一定知道 collections.namedtuple ，实际上 <strong>namedtuple 就能够动态创建类。</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+</pre></td><td class="rouge-code"><pre><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">namedtuple</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">Fruits</span> <span class="o">=</span> <span class="n">namedtuple</span><span class="p">(</span><span class="s">"Fruits"</span><span class="p">,</span><span class="s">"description weight price"</span><span class="p">)</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">apple</span> <span class="o">=</span> <span class="n">Fruits</span><span class="p">(</span><span class="s">"apple"</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">apple</span>
+<span class="n">Fruits</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s">'apple'</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">price</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">_</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">price</span> <span class="o">=</span> <span class="n">apple</span>
+<span class="mi">10</span> <span class="mi">2</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>如上代码所示，namedtuple 第<strong>一个参数是类名字符串</strong>、<strong>第二个参数是以空格分割的类属性</strong>，<strong>返回值是类对象。</strong></p>
+
+<p>确实，Fruits 变量承载了一个类对象，因为其能够创建 apple 实例，并且 apple 实例<strong>还是一个可迭代的对象</strong>，能够进行拆包操作（第 7 行）。</p>
+
+<p>接下来，我们会自己创建一个功能与 nametuple 类似的类工厂函数<strong>说明动态创建类的方法</strong>、然后，我们还会说明如何在<strong>创建类后动态修改类</strong>，即使用类装饰器。最后我会说明<strong>元类的一些性质。</strong></p>
+
+<h1 id="生产类的工厂">生产类的工厂</h1>
+
+<p>因为我们创建的类工厂的功能要与 nametuple 类似、即<strong>生产的类能够迭代</strong>、并且<strong>能够以友好的方式输出描述字符串</strong>，所以，生产出的类需要实现 <code class="highlighter-rouge">__repr__</code> 和 <code class="highlighter-rouge">__iter__</code> magic 方法。</p>
+
+<p>当然，因为需要接受以空格分割的类属性字符串，所以需要实现 <code class="highlighter-rouge">__init__</code> magic 方法，<strong>用以初始化实例。</strong>实现的类工厂函数 —— class_factory 如下：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+</pre></td><td class="rouge-code"><pre><span class="o">&gt;&gt;&gt;</span> <span class="k">def</span> <span class="nf">class_factory</span><span class="p">(</span><span class="n">cls_name</span><span class="p">,</span> <span class="n">field_names</span><span class="p">):</span>
+
+        <span class="n">field_names</span> <span class="o">=</span> <span class="n">field_names</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">','</span><span class="p">,</span> <span class="s">' '</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>  <span class="c1"># 1
+</span>        <span class="n">field_names</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">field_names</span><span class="p">)</span>  <span class="c1"># 2
+</span>    
+        <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>  <span class="c1"># 3
+</span>            <span class="n">attrs</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__slots__</span><span class="p">,</span> <span class="n">args</span><span class="p">))</span>
+            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">attrs</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+    
+        <span class="k">def</span> <span class="nf">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>  <span class="c1"># 4
+</span>            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__slots__</span><span class="p">:</span>
+                <span class="k">yield</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+    
+        <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>  <span class="c1"># 5
+</span>            <span class="n">values</span> <span class="o">=</span> <span class="s">', '</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s">'{}={!r}'</span><span class="o">.</span><span class="nb">format</span><span class="p">(</span><span class="o">*</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span>
+                               <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__slots__</span><span class="p">,</span> <span class="bp">self</span><span class="p">))</span>
+            <span class="k">return</span> <span class="s">'{}({})'</span><span class="o">.</span><span class="nb">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="n">values</span><span class="p">)</span>
+    
+        <span class="n">cls_attrs</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">__slots__</span> <span class="o">=</span> <span class="n">field_names</span><span class="p">,</span>  <span class="c1"># 6
+</span>                         <span class="n">__init__</span>  <span class="o">=</span> <span class="n">__init__</span><span class="p">,</span>
+                         <span class="n">__iter__</span>  <span class="o">=</span> <span class="n">__iter__</span><span class="p">,</span>
+                         <span class="n">__repr__</span>  <span class="o">=</span> <span class="n">__repr__</span><span class="p">)</span>
+    
+        <span class="k">return</span> <span class="nb">type</span><span class="p">(</span><span class="n">cls_name</span><span class="p">,</span> <span class="p">(</span><span class="nb">object</span><span class="p">,),</span> <span class="n">cls_attrs</span><span class="p">)</span>  <span class="c1"># 7
+</span>
+<span class="n">Fruits</span> <span class="o">=</span> <span class="n">class_factory</span><span class="p">(</span><span class="s">"Fruits"</span><span class="p">,</span><span class="s">"description weight price"</span><span class="p">)</span> <span class="c1"># 8
+</span><span class="o">&gt;&gt;&gt;</span> <span class="n">apple</span>
+<span class="n">Fruits</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s">'apple'</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">price</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">_</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">price</span> <span class="o">=</span> <span class="n">apple</span>
+<span class="mi">10</span> <span class="mi">2</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>解释：</p>
+
+<ol>
+  <li>根据传入的<strong>以空格分割的类属性进行拆分</strong>，拆分后放在 field_names 列表中。</li>
+  <li>将之转化为 tuple 类型，这里在为 <code class="highlighter-rouge">__slots__</code> 属性赋值做准备。</li>
+  <li>这个函数即是新类的 <code class="highlighter-rouge">__init__</code> 函数，这里只设置了若干个定位参数，需要注意的是，若果传入的参数的<strong>数量超过 <code class="highlighter-rouge">__slots__</code>中的参数数量</strong>，那么此函数只会按<strong>照传入参数的顺序</strong>为实例设置属性。</li>
+  <li><strong>实现了可迭代对象的接口</strong>，这里返回生成器，用于按顺序遍历实例属性。</li>
+  <li>实现 <code class="highlighter-rouge">__repr__</code> 接口，使得实例能够以友好的方式输出描述字符串。</li>
+  <li><strong>创建类属性字典。</strong></li>
+  <li>使用 type 元类构造方法，<strong>构建新类，并返回类对象。</strong></li>
+  <li>使用 class_factory 创建类对象并赋给 Fruits ，<strong>下面的行为和使用 nametuple 一样。</strong></li>
+</ol>
+
+<p>通常，我们把 type 当做函数使用，例如 <code class="highlighter-rouge">type(obj)</code> 可以获取该 obj 所属的类。然而 <strong>type 是一个元类，当我们传入三个参数时可以构建一个类对象。</strong></p>
+
+<p>这三个参数分别是：</p>
+
+<ol>
+  <li><strong>name</strong>: <strong>新类的名字</strong>。</li>
+  <li><strong>bases</strong>: 一个元组，是多重继承的<strong>父类集合</strong>。</li>
+  <li><strong>dict</strong>: 一个字典，呈放着指定的<strong>新类的属性和值</strong>。</li>
+</ol>
+
+<blockquote>
+  <p>类函数可以视为特殊的类属性，所以上例中的 <code class="highlighter-rouge">__init__</code>、<code class="highlighter-rouge">__iter__</code>、<code class="highlighter-rouge">__repr__</code> 也算作属性。</p>
+</blockquote>
+
+<p>所以，<strong>使用标准库提供的 type 元类可以很容易的实现运行时动态创建属性</strong>，实际上大部分标准库类、用户自己实现的类都是 type 类的实例，包括 object 类。</p>
+
+<blockquote>
+  <p>值得注意的是，nametuple 的实现要比这个复杂的多，它并不是用元类 type 来实现的，而是使用内置的 <code class="highlighter-rouge">exec</code> 处理字符串形式的源码模板实现的。这里是 nametuple 的源码 ——&gt; <a href="https://hg.python.org/cpython/file/3.4/Lib/collections/__init__.py#l236">nametuple</a></p>
+</blockquote>
+
+<p>除了动态创建类以外，python 还可以<strong>使用类装饰器动态定制类</strong>。</p>
+
+<h1 id="使用类装饰器动态定制类">使用类装饰器动态定制类</h1>
+
+<p>你可能还记得在 <a href="https://halfclock.github.io/2019/06/03/python-descriptor_01/">浅析 python 属性描述符（上）</a> 一文中我使用了属性描述符管理托管实例属性，下面是那篇文章的代码片段：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+</pre></td><td class="rouge-code"><pre><span class="kn">import</span> <span class="nn">de_model</span> <span class="k">as</span> <span class="n">model</span>
+<span class="k">class</span> <span class="nc">Fruits</span><span class="p">:</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">NonBlank</span><span class="p">(</span><span class="s">"description"</span><span class="p">)</span>
+    <span class="n">weight</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">Quantity</span><span class="p">(</span><span class="s">"weight"</span><span class="p">)</span>
+    <span class="n">price</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">Quantity</span><span class="p">(</span><span class="s">"price"</span><span class="p">)</span>
+    <span class="o">...</span> <span class="err">省略</span> <span class="o">...</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>你是否注意到了，我们在创建属性描述符实例时必须要将托管类对应的属性名以字符串的形式传递进去，因为在描述符实例在调用 <code class="highlighter-rouge">__set__</code> 方法时会用到这个参数(attrname)。</p>
+
+<p><strong>这显然很麻烦，因为我们要写两遍同样的变量</strong>，有什么办法能够简化他呢？</p>
+
+<p>因为 <code class="highlighter-rouge">model.Quantity()</code> 在右边，<strong>解释器无法在执行这句代码时知道等式左边的变量的名字是什么！</strong></p>
+
+<p>所以，我们必须要在 Fruits 类构建完了之后，再<strong>定制每一个属性描述符实例的 attrname。</strong></p>
+
+<p>碰巧的是，类装饰器正是在 Fruits 类构建完之后起作用的，<strong>它是一个接受类对象作为参数，返回原来的类/修改后的类的函数。</strong></p>
+
+<blockquote>
+  <p>与函数装饰器类似，不过函数装饰器接收的是函数对象。</p>
+</blockquote>
+
+<p>这样，我们可以<strong>写一个类装饰器来达成目的</strong>：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+</pre></td><td class="rouge-code"><pre><span class="k">def</span> <span class="nf">entity</span><span class="p">(</span><span class="n">cls</span><span class="p">):</span>  <span class="c1"># &lt;1&gt;
+</span>    <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">attr</span> <span class="ow">in</span> <span class="n">cls</span><span class="o">.</span><span class="n">__dict__</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>  <span class="c1"># &lt;2&gt;
+</span>        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">attr</span><span class="p">,</span> <span class="n">Validated</span><span class="p">):</span>  <span class="c1"># &lt;3&gt;
+</span>            <span class="n">attr</span><span class="o">.</span><span class="n">attrname</span> <span class="o">=</span> <span class="n">key</span>  
+    <span class="k">return</span> <span class="n">cls</span>  <span class="c1"># &lt;4&gt;
+</span></pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>解释：</p>
+
+<ol>
+  <li>类装饰器函数的参数是一个类对象。</li>
+  <li>迭代该类的属性字典，拿到各个属性及其值，对于 Fruits 类来说，这个字典有三个键：description、weight、price，值分别是对应的属性描述符实例。</li>
+  <li>如果该属性的值是 <code class="highlighter-rouge">Validatad</code> 的实例，那么<strong>将该描述符实例的 attrname 属性重新赋值为字符串形式的键。</strong></li>
+  <li>返回修改后的类。</li>
+</ol>
+
+<p>将这个类描述符放在 models 模块后，Fruits 类这样使用它：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+</pre></td><td class="rouge-code"><pre>
+<span class="kn">import</span> <span class="nn">de_model</span> <span class="k">as</span> <span class="n">model</span>
+<span class="o">@</span><span class="n">model</span><span class="o">.</span><span class="n">entity</span>
+<span class="k">class</span> <span class="nc">Fruits</span><span class="p">:</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">NonBlank</span><span class="p">()</span>
+    <span class="n">weight</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">Quantity</span><span class="p">()</span>
+    <span class="n">price</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">Quantity</span><span class="p">()</span>
+    <span class="o">...</span> <span class="err">省略</span> <span class="o">...</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>可以看出，重构以后的 Fruits 仅多了一行 <code class="highlighter-rouge">@model.entity</code> ，等式右边烦人的参数可以不写了，<strong>就算以后为它添加其他属性也一样。</strong></p>
+
+<p><strong>类装饰器能够以比较简单的方式做到以前需要使用元类去做的事情 - 创建类时定制类。</strong></p>
+
+<p>然而装饰器有一个缺点，无论是类装饰器还是函数装饰器，<strong>其只对直接依附的类有效，其子类无法继承这个装饰器所作出的改动。</strong></p>
+
+<p>然而，<strong>使用元类能够弥补这个 “缺点”。</strong></p>
+
+<h1 id="理解元类">理解元类</h1>
+
+<p>为了理解元类在发挥着类装饰器的作用时，又<strong>弥补了类装饰器只对依附的类有效的 “缺点”</strong>。我们必须先了解元类的一些性质，以及其如何作为类装饰器使用。</p>
+
+<p>首先、根据本文的第一部分的 type 元类可以看出：<strong>元类是制造类的工厂。</strong></p>
+
+<p>《流畅的 python》的作者 Luciano 画的一副涂鸦能够很好的表明元类与类的关系：</p>
+
+<p><img src="/img/in-post/post-python-class-metacoding/15601821873491.jpg" alt="" /></p>
+
+<p>上图中<strong>绿色的工厂就是元类、而蓝色的工厂是元类生产的类对象。</strong></p>
+
+<hr />
+
+<p>所以，<strong>元类的实例是类</strong>。</p>
+
+<p>其次、<strong>元类的子类还是元类</strong>，例如，在 <a href="https://halfclock.github.io/2019/06/07/python-import-and-running/">python 导入时与运行时</a> 一文里，evalsupport 模块的 MetaAleph 类，其继承了元类 type，所以它也是元类。</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+</pre></td><td class="rouge-code"><pre><span class="k">class</span> <span class="nc">MetaAleph</span><span class="p">(</span><span class="nb">type</span><span class="p">):</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[400]&gt; MetaAleph body'</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">bases</span><span class="p">,</span> <span class="n">dic</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[500]&gt; MetaAleph.__init__'</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">inner_2</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[600]&gt; MetaAleph.__init__:inner_2'</span><span class="p">)</span>
+
+        <span class="n">cls</span><span class="o">.</span><span class="n">method_z</span> <span class="o">=</span> <span class="n">inner_2</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>元类 MetaAleph 的<strong>构造方法接收和 type 类的构造方法几乎一样的参数</strong>，不同的是，这里还多了一个 cls 参数，这里的 cls 是指类对象，也就是说， <strong>MetaAleph 不仅能构造类对象，还能够对已经构造好的类对象进行修改。</strong></p>
+
+<p>从这个角度看，元类可以当做类装饰器使用，因为，除了使用元类的构造方法直接构造类对象以外、<strong>还可以使用如下方法声明某类是某元类的实例</strong>：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+</pre></td><td class="rouge-code"><pre><span class="k">class</span> <span class="nc">A</span><span class="p">(</span><span class="n">metaclass</span> <span class="o">=</span> <span class="n">MetaAleph</span><span class="p">):</span>
+    <span class="o">...</span> <span class="err">省略</span> <span class="o">...</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>上面的代码中，A 类使用了 <code class="highlighter-rouge">metaclass  = MetaAleph</code> 声明了自己是元类 MetaAleph 的<strong>实例</strong>，注意，是实例！</p>
+
+<p>这样一来，解释器在执行完 A 类的定义体以后，得到 A 类的类对象、类名、父类集合、参数字典数据，并将之<strong>传递给 MetaAleph 类的构造方法</strong> <code class="highlighter-rouge">__init__</code> ，<strong>真实的 A 类对象其实是经过  <code class="highlighter-rouge">__init__</code> 修改过的类</strong>。</p>
+
+<p>这样的行为和类装饰器没什么不同，只不过，使用元类有一个好处 —— <strong>A 类的子类也会是元类 MetaAleph 的实例。</strong></p>
+
+<p>即、<strong>元类的实例的子类也是该元类的实例</strong></p>
+
+<blockquote>
+  <p>也许你会感觉很绕，开始怀疑人生，没关系，后面会有实例用于说明。</p>
+</blockquote>
+
+<p>例如下面的类 A 也将是 MetaAleph 类的实例，在构建完 B 类对象之后，依旧要传递给
+MetaAleph 类的构造方法进行修改，实际上的 B 类对象也是修改后的类对象。</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+</pre></td><td class="rouge-code"><pre><span class="k">class</span> <span class="nc">A</span><span class="p">(</span><span class="n">metaclass</span> <span class="o">=</span> <span class="n">MetaAleph</span><span class="p">):</span>
+    <span class="o">...</span> <span class="err">省略</span> <span class="o">...</span>
+
+<span class="k">class</span> <span class="nc">B</span><span class="p">(</span><span class="n">A</span><span class="p">)</span>
+    <span class="o">...</span> <span class="err">省略</span> <span class="o">...</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>这样一来，我们就了解了，元类有<strong>四个非常重要的性质</strong>：</p>
+
+<ol>
+  <li><strong>元类的实例是类。</strong></li>
+  <li><strong>元类的子类还是元类。</strong></li>
+  <li><strong>元类可以当做类装饰器来使用。</strong></li>
+  <li><strong>元类的实例的子类也是该元类的实例。</strong></li>
+</ol>
+
+<h4 id="通过测试理解元类">通过测试理解元类</h4>
+
+<p>接下来，我会通过<strong>类似于</strong> <a href="https://halfclock.github.io/2019/06/07/python-import-and-running/">python 导入时与运行时</a> 一文中的 evaltime 模块来说明元类的四个重要性质。</p>
+
+<blockquote>
+  <p>注意，下面代码的 evalsupport 模块与 <a href="https://halfclock.github.io/2019/06/07/python-import-and-running/">python 导入时与运行时</a> 一文一模一样，如果你没有看过这篇文章，我建议你先去看，因为对理解下面代码的行为帮助很大。</p>
+</blockquote>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+</pre></td><td class="rouge-code"><pre>
+<span class="kn">from</span> <span class="nn">evalsupport</span> <span class="kn">import</span> <span class="n">deco_alpha</span>
+<span class="kn">from</span> <span class="nn">evalsupport</span> <span class="kn">import</span> <span class="n">MetaAleph</span>
+
+<span class="k">print</span><span class="p">(</span><span class="s">'&lt;[1]&gt; evaltime_meta module start'</span><span class="p">)</span>
+
+
+<span class="o">@</span><span class="n">deco_alpha</span>
+<span class="k">class</span> <span class="nc">ClassThree</span><span class="p">():</span> <span class="c1"># 1
+</span>    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[2]&gt; ClassThree body'</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">method_y</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[3]&gt; ClassThree.method_y'</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">ClassFour</span><span class="p">(</span><span class="n">ClassThree</span><span class="p">):</span> 
+    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[4]&gt; ClassFour body'</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">method_y</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[5]&gt; ClassFour.method_y'</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">ClassFive</span><span class="p">(</span><span class="n">metaclass</span><span class="o">=</span><span class="n">MetaAleph</span><span class="p">):</span> <span class="c1"># 2
+</span>    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[6]&gt; ClassFive body'</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[7]&gt; ClassFive.__init__'</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">method_z</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[8]&gt; ClassFive.method_y'</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">ClassSix</span><span class="p">(</span><span class="n">ClassFive</span><span class="p">):</span> <span class="c1"># 3
+</span>    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[9]&gt; ClassSix body'</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">method_z</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[10]&gt; ClassSix.method_y'</span><span class="p">)</span>
+
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">'__main__'</span><span class="p">:</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[11]&gt; ClassThree tests'</span><span class="p">,</span> <span class="mi">30</span> <span class="o">*</span> <span class="s">'.'</span><span class="p">)</span>
+    <span class="n">three</span> <span class="o">=</span> <span class="n">ClassThree</span><span class="p">()</span>
+    <span class="n">three</span><span class="o">.</span><span class="n">method_y</span><span class="p">()</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[12]&gt; ClassFour tests'</span><span class="p">,</span> <span class="mi">30</span> <span class="o">*</span> <span class="s">'.'</span><span class="p">)</span>
+    <span class="n">four</span> <span class="o">=</span> <span class="n">ClassFour</span><span class="p">()</span>
+    <span class="n">four</span><span class="o">.</span><span class="n">method_y</span><span class="p">()</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[13]&gt; ClassFive tests'</span><span class="p">,</span> <span class="mi">30</span> <span class="o">*</span> <span class="s">'.'</span><span class="p">)</span>
+    <span class="n">five</span> <span class="o">=</span> <span class="n">ClassFive</span><span class="p">()</span>
+    <span class="n">five</span><span class="o">.</span><span class="n">method_z</span><span class="p">()</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[14]&gt; ClassSix tests'</span><span class="p">,</span> <span class="mi">30</span> <span class="o">*</span> <span class="s">'.'</span><span class="p">)</span>
+    <span class="n">six</span> <span class="o">=</span> <span class="n">ClassSix</span><span class="p">()</span>
+    <span class="n">six</span><span class="o">.</span><span class="n">method_z</span><span class="p">()</span>
+
+<span class="k">print</span><span class="p">(</span><span class="s">'&lt;[15]&gt; evaltime_meta module end'</span><span class="p">)</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>解释：</p>
+
+<ol>
+  <li>删除了 ClassOne、ClassTwo，ClassThree 与 ClassFour 与之前的版本一致。</li>
+  <li>新增了 ClassFive ，它是 MetaAleph 的实例。</li>
+  <li>新增了 ClassSix，他是 ClassFive 的子类。</li>
+</ol>
+
+<p>和 <a href="https://halfclock.github.io/2019/06/07/python-import-and-running/">python 导入时与运行时</a> 一文一样我们将分别测试导入时与运行时的输出。</p>
+
+<blockquote>
+  <p>我建议你先将自己的答案写出来，再看下去</p>
+</blockquote>
+
+<p>在 python 命令行中敲入 <code class="highlighter-rouge">import evaltime</code> 会出现如下输出：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+</pre></td><td class="rouge-code"><pre><span class="o">&lt;</span><span class="p">[</span><span class="mi">100</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">evalsupport</span> <span class="n">module</span> <span class="n">start</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">400</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">MetaAleph</span> <span class="n">body</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">700</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">evalsupport</span> <span class="n">module</span> <span class="n">end</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">evaltime</span> <span class="n">module</span> <span class="n">start</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassThree</span> <span class="n">body</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">200</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">deco_alpha</span> 
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassFour</span> <span class="n">body</span> <span class="c1"># 1
+</span><span class="o">&lt;</span><span class="p">[</span><span class="mi">6</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassFive</span> <span class="n">body</span> 
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">500</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">MetaAleph</span><span class="o">.</span><span class="n">__init__</span> <span class="c1"># 2
+</span><span class="o">&lt;</span><span class="p">[</span><span class="mi">9</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassSix</span> <span class="n">body</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">500</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">MetaAleph</span><span class="o">.</span><span class="n">__init__</span> <span class="c1"># 3
+</span><span class="o">&lt;</span><span class="p">[</span><span class="mi">15</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">evaltime</span> <span class="n">module</span> <span class="n">end</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>解释：</p>
+
+<ol>
+  <li>与之前一样，虽然 ClassFour 继承了 ClassThree ，但是<strong>装饰 ClassThree 的装饰器 deco_alpha 并不会装饰 ClassFour。</strong></li>
+  <li>ClassFive 是 MetaAleph 类的实例，所以在<strong>构建完 ClassFive 类对象之后会调用 MetaAleph 的 <code class="highlighter-rouge">__init__</code> 方法</strong>。</li>
+  <li>ClassSix <strong>继承了 ClassFive</strong>，<strong>尽管它没有显式声明</strong>它是 MetaAleph 类的实例，但是<strong>解释器依旧在构建完 ClassSix 类对象之后调用了</strong> MetaAleph 的 <code class="highlighter-rouge">__init__</code> 方法。</li>
+</ol>
+
+<p>在系统命令行中敲入 <code class="highlighter-rouge">python evaltime.py</code> 会出现如下输出：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+</pre></td><td class="rouge-code"><pre><span class="o">&lt;</span><span class="p">[</span><span class="mi">100</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">evalsupport</span> <span class="n">module</span> <span class="n">start</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">400</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">MetaAleph</span> <span class="n">body</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">700</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">evalsupport</span> <span class="n">module</span> <span class="n">end</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">evaltime_meta</span> <span class="n">module</span> <span class="n">start</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassThree</span> <span class="n">body</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">200</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">deco_alpha</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassFour</span> <span class="n">body</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">6</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassFive</span> <span class="n">body</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">500</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">MetaAleph</span><span class="o">.</span><span class="n">__init__</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">9</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassSix</span> <span class="n">body</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">500</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">MetaAleph</span><span class="o">.</span><span class="n">__init__</span> <span class="c1"># 1
+</span><span class="o">&lt;</span><span class="p">[</span><span class="mi">11</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassThree</span> <span class="n">tests</span> <span class="o">..............................</span> 
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">300</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">deco_alpha</span><span class="p">:</span><span class="n">inner_1</span> 
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">12</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassFour</span> <span class="n">tests</span> <span class="o">..............................</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassFour</span><span class="o">.</span><span class="n">method_y</span> <span class="c1"># 2
+</span><span class="o">&lt;</span><span class="p">[</span><span class="mi">13</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassFive</span> <span class="n">tests</span> <span class="o">..............................</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">7</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassFive</span><span class="o">.</span><span class="n">__init__</span> 
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">600</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">MetaAleph</span><span class="o">.</span><span class="n">__init__</span><span class="p">:</span><span class="n">inner_2</span> <span class="c1"># 3
+</span><span class="o">&lt;</span><span class="p">[</span><span class="mi">14</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassSix</span> <span class="n">tests</span> <span class="o">..............................</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">7</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassFive</span><span class="o">.</span><span class="n">__init__</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">600</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">MetaAleph</span><span class="o">.</span><span class="n">__init__</span><span class="p">:</span><span class="n">inner_2</span> <span class="c1"># 4
+</span><span class="o">&lt;</span><span class="p">[</span><span class="mi">15</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">evaltime_meta</span> <span class="n">module</span> <span class="n">end</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>解释：</p>
+
+<ol>
+  <li>之前的输出与导入时一致</li>
+  <li>ClassFour <strong>没有被 deco_alpha 装饰。</strong></li>
+  <li>ClassFive 的 method_z() 被元类的 inner_2 替换掉了。</li>
+  <li>ClassFive 的子类 ClassSix 的 method_z() <strong>也被元类的 inner_2 替换掉了</strong>。</li>
+</ol>
+
+<p>这些测试不仅说明了<strong>类装饰器只对直接依附的类有效，其子类无法继承这个装饰器所作出的改动</strong>。还说明了，<strong>元类（MetaAleph）的实例（ClassFive）的子类（ClassSix）也是该元类的实例</strong>。</p>
+
+<p>即，类装饰器可能对子类没有影响，但是元类对实例的子类依旧有影响。</p>
+
+<h1 id="django-的-models-模块">Django 的 models 模块</h1>
+
+<p><strong>Django 的 models 是利用元编程技术的典型案例</strong>，下面是一段 Django modesls 的经典代码：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+</pre></td><td class="rouge-code"><pre><span class="kn">from</span> <span class="nn">django.db</span> <span class="kn">import</span> <span class="n">models</span> <span class="c1"># 3
+</span>
+<span class="k">class</span> <span class="nc">Item</span><span class="p">(</span><span class="n">models</span><span class="o">.</span><span class="n">Model</span><span class="p">):</span> <span class="c1"># 2
+</span>
+    <span class="n">text</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">TextField</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="s">''</span><span class="p">)</span> <span class="c1"># 1
+</span></pre></td></tr></tbody></table></code></pre></div></div>
+
+<ol>
+  <li>这里的 models.TextField() 明显与<a href="https://halfclock.github.io/2019/06/03/python-descriptor_01/">浅析 python 属性描述符（上）</a> 一文中的 model.Quantity() 一样都是属性描述符，用于管理 Item 类的实例属性。</li>
+  <li>models.Model 类是某元类的实例，Item 继承了 models.Model <strong>只是为了声明自己是 那个元类的实例</strong>，该元类的<strong>作用可以稍稍参考本文的 entity 类装饰器</strong>。</li>
+  <li>models 模块与 <a href="https://halfclock.github.io/2019/06/03/python-descriptor_01/">浅析 python 属性描述符（上）</a> 一文中的 model 模块类似，存放着各类属性描述符及其父类，并且还存放着像 models.Model 一样的元类。</li>
+</ol>
+
+<p>这三行代码，几乎将我这六篇元编程相关博文的知识都囊括进去了，不仅<strong>使用了 models.TextField() 属性描述符管理托管类 Item 的实例属性</strong>。而且还<strong>继承了 models.Model 这个元类的实例，实现了动态修改类的效果。</strong></p>
+
+<p>可以说，<strong>动态创建实例属性、动态修改/定制类</strong>在这三行代码中均有体现。</p>
+
+<h1 id="end">END</h1>
+
+<p>这六篇系列文章<strong>并不能囊括所有的元编程知识，相反这仅仅是元编程最基础的知识。</strong>幸运的是，在日常编程中，我们并不需要/几乎不使用元编程的相关知识，元编程技术通常是那些框架开发者在频繁使用。</p>
+
+<p>但是，如你所见，这六篇博文中<strong>多多少少都会有对日常生产有所帮助的思想/场景</strong>。比如：正确使用 python 特性和属性描述符就能帮助我们很好的管理实例属性，减少冗余代码。</p>
+
+<p>希望这个系列的博文对你有所帮助，如果发现一些错误，请在评论中指出，我会尽快改正。</p>
+:ET

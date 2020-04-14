@@ -1,0 +1,631 @@
+I"Ū<h1 id="前言">前言</h1>
+
+<p>本博客是总结我<strong>将 Django 项目部署到阿里云服务器上的流程</strong>。重要的是，本博客不会将每一步的细节都事无巨细的列出，而是做一个概要性的总结与分析。</p>
+
+<p>这个流程参照了<a href="http://www.obeythetestinggoat.com/book/praise.harry.html">《Test-Driven Development With Python》</a>一书第九章至第十一章的内容。如果你想复现部署的流程，我建议你去看这本书的第九章 —— 第十一章。</p>
+
+<p>用于部署的 Django 代码仓库在这里 ——&gt; <a href="https://github.com/HalfClock/software_test">software test repository</a></p>
+
+<h1 id="在服务器上安装需要的服务">在服务器上安装需要的服务</h1>
+
+<p>想要将 Django 项目部署在真实的服务器上，需要面临几个问题：</p>
+
+<ol>
+  <li>项目暴露在了公网之下，<strong>需要有安全策略。</strong></li>
+  <li><strong>服务器运行多个服务</strong>，例如：Django、Flask、Spring <strong>都需要监听默认的 80 端口。</strong></li>
+  <li>网站的<strong>高并发请求处理</strong>，包括静态资源、Http 请求头的解析等。</li>
+  <li>服务器如何进行<strong>高效运维</strong>。</li>
+</ol>
+
+<p>此时，如果仅使用 Django 自带的 <code class="highlighter-rouge">manage.py runserver</code> 肯定是不能满足需求的，所以我们<strong>需要一个高可靠的 WEB 服务器作为 WEB 应用程序的载体。</strong></p>
+
+<p>现在，比较出名的 WEB 服务器有 Nginx 和 Apache，这里我选取了 Nginx。</p>
+
+<h4 id="反向代理服务器--nginx">反向代理服务器 —— Nginx</h4>
+
+<p>正向代理可以理解为网站用户的代理服务，我们平常说的<strong>搭梯子</strong>，所谓的梯子就是正向代理，客户通过正向代理服务器访问到了平时访问不到的资源。</p>
+
+<p>而反向代理是面向 WEB 服务器的，也就是说，当现实中有的<strong>网站拥有成百上千台 WEB 服务器都运行着相同的服务</strong>。然而<strong>用户都是通过统一的域名来访问这个网站</strong>，并不知道访问的具体是哪一台服务器，此时用户<strong>访问的域名直接连接的服务器就是反向代理服务器。</strong>反向代理的服务器负责帮我们把请求转发到真实的服务器那里。</p>
+
+<p><img src="/img/in-post/post-django-deploy/15602632166928.jpg" alt="" /></p>
+<blockquote>
+  <p>图片来源于<a href="https://www.jianshu.com/p/956debe2891d">这里</a></p>
+</blockquote>
+
+<p>Nginx 是一款开源的、高性能的 <strong>HTTP 服务器</strong>和<strong>反向代理服务器</strong>，Nginx 可以作为一个 HTTP 服务器进行网站的发布处理，另外 Nginx 可以作为反向代理进行<strong>负载均衡的实现。</strong> 比如静态文件处理，网站安全，高并发处理等等。</p>
+
+<p>Nginx 就扮演者反向代理服务器一角，其按<strong>照请求数量按照一定的规则进行分发道不同的服务器处理的规则</strong>，就是一种均衡规则，即我们平常说的<strong>负载均衡。</strong></p>
+
+<p><strong>Nginx 相关命令：</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+</pre></td><td class="rouge-code"><pre><span class="n">apt</span> <span class="n">install</span> <span class="n">nginx</span>  <span class="c1"># 安装 nginx
+</span><span class="o">/</span><span class="n">etc</span><span class="o">/</span><span class="n">init</span><span class="o">.</span><span class="n">d</span><span class="o">/</span><span class="n">nginx</span> <span class="n">start</span><span class="p">(</span><span class="n">stop</span><span class="o">/</span><span class="n">restart</span><span class="p">)</span> <span class="c1"># 启动/停止/重启 nginx 
+</span><span class="n">nginx</span> <span class="o">-</span><span class="n">t</span> <span class="c1"># 测试 nginx，浏览器输入 IP，若出现欢迎界面则成功。
+</span></pre></td></tr></tbody></table></code></pre></div></div>
+<h4 id="业务相关的服务">业务相关的服务</h4>
+<p>在安装 uWSGI 前需要先安装 python 3.6、pip3、virtualenv 等需要的服务。</p>
+
+<p>此外此外还需要安装 git、需要的数据库服务等服务。</p>
+
+<p>这里不再赘述，请自行搜索。</p>
+<h4 id="wsgi-服务--uwsgi">WSGI 服务 —— uWSGI</h4>
+
+<p>此外我们还需要一个 <strong>WSGI 服务器</strong>，例如 uWSGI/gunicorn ，用于与各种实现了 WSGI 接口的 WEB 框架协作，这里选取了 uWSGI 服务器。</p>
+
+<ul>
+  <li>uWSGI 是一个 WEB 服务器，其实现了 WSGI 协议、uwsgi 协议、http 协议等。</li>
+  <li>uwsgi 协议是一种线路协议，其用于在 uWSGI 服务器上与其他网络服务器（Nginx/Apacache）的数据通信。</li>
+  <li>WSGI 是一种通信协议(规范)，用于规范 WEB 应用（Django）与 WEB 服务器（uWSGI）之间的通信。</li>
+</ul>
+
+<p><strong>Nginx 和 uWSGI 及 Django 框架的关系如下图：</strong></p>
+
+<p><img src="/img/in-post/post-django-deploy/server-relation.png" alt="server-relation" /></p>
+
+<ol>
+  <li>Nginx 负责接收 http 请求，<strong>如果请求是静态文件</strong>，那么直接根据 URI 返回静态文件，<strong>如果是请求 WEB 应用数据</strong>，那么将请求转发给 uWSGI 服务器。</li>
+  <li>uWSGI 接收 socket 消息后将信息转发给 WEB 应用程序(Django)。</li>
+  <li>Django 处理信息，返回 HTTP 响应，将之返回给 uWSGI，uWSGI 再返回给 Nginx，Nginx 进行打包将 HHTTP 响应发送给用户。</li>
+</ol>
+
+<p><strong>uWSGI 相关命令</strong></p>
+<blockquote>
+  <p>注意，在安装 uWSGI 前需要先安装 python 3.6、pip3、virtualenv</p>
+</blockquote>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+</pre></td><td class="rouge-code"><pre><span class="n">apt</span> <span class="n">install</span> <span class="n">python3</span><span class="o">-</span><span class="n">dev</span> <span class="c1"># 安装相关依赖包
+</span><span class="n">apt</span> <span class="n">install</span> <span class="n">gcc</span> <span class="c1"># 安装相关依赖包
+</span><span class="n">pip3</span> <span class="n">install</span> <span class="n">uwsgi</span> <span class="c1"># 安装 uwsgi，在虚拟环境中
+</span><span class="n">uwsgi</span> <span class="o">--</span><span class="n">http</span>  <span class="p">:</span><span class="mi">8000</span> <span class="o">--</span><span class="n">module</span>  <span class="err">项目</span><span class="o">.</span><span class="n">wsgi</span> <span class="c1"># 通过 Django 项目自带的 wsgi 直接运行，在项目目录下
+</span><span class="n">pip3</span> <span class="n">uninstall</span> <span class="n">uwsgi</span> <span class="c1"># 卸载 uwsgi
+</span><span class="n">sudo</span> <span class="n">apt</span><span class="o">-</span><span class="n">get</span> <span class="n">remove</span> <span class="n">uwsgi</span> <span class="c1"># 卸载 uwsgi
+</span></pre></td></tr></tbody></table></code></pre></div></div>
+
+<h1 id="手动部署项目">手动部署项目</h1>
+<p>正式部署前、你需要使用 root 账号创建一个<strong>具有 sudo 权限的普通账号</strong>，因为部署服务器不像安装各类服务，<strong>不需要使用 root 账号</strong>，并且若使用 root 账号部署和运行各个服务，<strong>一旦系统被黑，那么将十分可怕。</strong></p>
+
+<p>账号相关的一些命令：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+</pre></td><td class="rouge-code"><pre><span class="n">useradd</span> <span class="o">-</span><span class="n">m</span> <span class="err">用户名</span> <span class="o">-</span><span class="n">s</span> <span class="o">/</span><span class="nb">bin</span><span class="o">/</span><span class="n">bash</span> <span class="c1"># 创建普通用户
+</span><span class="n">passwd</span> <span class="err">用户名</span> <span class="c1"># 为该用户设置密码
+</span><span class="n">adduser</span> <span class="err">用户名</span> <span class="n">sudo</span> <span class="c1"># 将该用户添加至 sudo 用户组
+</span><span class="n">su</span> <span class="err">用户名</span> <span class="c1"># 切换用户
+</span></pre></td></tr></tbody></table></code></pre></div></div>
+
+<p><strong>接下来的所有操作都由这个非 root 账号完成。</strong></p>
+
+<h4 id="建立站点的文件结构">建立站点的文件结构</h4>
+<p>首先，我们需要建立合理的文件目录，我们最好在用户目录（/home/username）下创建 “site/服务器域名或 IP” 这样的目录<strong>作为项目的根目录。</strong></p>
+
+<p>其次，应该根据不同类型的文件设置不同类型的文件夹：</p>
+
+<ol>
+  <li>database: 放置<strong>数据库</strong>文件的文件夹。</li>
+  <li>static: 放置网站<strong>静态文件</strong>的文件夹。</li>
+  <li>source: 放置<strong>网站源码</strong>的文件夹。</li>
+  <li>virtualenv: 放置 Django 项目的<strong>虚拟环境</strong>。</li>
+</ol>
+
+<p>这样规划后的目录看起来像这样：</p>
+
+<p><img src="/img/in-post/post-django-deploy/15590561543622.jpg" alt="15590561543622" /></p>
+
+<h4 id="使用-git-服务器管理代码">使用 GIT 服务器管理代码</h4>
+<p>若要实现自动化部署、那么使用 GIT 进行代码的版本控制是最方便、合理的。因为使用 GIT 能够很方便的将最新的代码拉至服务器，并当需要版本回溯时进行及时回溯。</p>
+
+<p>使用 <code class="highlighter-rouge">git clone</code> 命令将 git 服务器中的代码拉至 source 文件夹下。</p>
+
+<h4 id="创建需要的虚拟环境">创建需要的虚拟环境</h4>
+<p>使用 virtualenv <strong>管理 python 项目的虚拟环境是很方便的</strong>，尤其是在服务端，创建虚拟环境有助于隔离各个应用的不同环境需求，<strong>避免配置冲突的尴尬</strong>。</p>
+
+<p>使用 <code class="highlighter-rouge">virtualenv -p /usr/bin/python3 virtualenv</code> 命令在 virtualenv 文件夹下创建以 python3 为基础的虚拟环境。</p>
+
+<p>使用 <code class="highlighter-rouge">source virtualenv/bin/activate</code> 激活该虚拟环境。</p>
+
+<blockquote>
+  <p>可使用 deactivate 退出该虚拟环境</p>
+</blockquote>
+
+<p><strong>以后的代码都在该虚拟环境中完成了。</strong></p>
+
+<p>然后在虚拟环境中安装 Django 等需要的依赖，若 python 项目源文件中<strong>有 requirement.txt 文件</strong>，那么可以直接使用:</p>
+
+<p><code class="highlighter-rouge">pip3 install -r requirement.txt</code> <strong>安装 requirement.txt 文件记载的所有依赖。</strong></p>
+
+<blockquote>
+  <p><code class="highlighter-rouge">pip freeze &gt; requirement.txt</code> 可以将该虚拟环境中安装的依赖导出到 requirement.txt 文件中</p>
+</blockquote>
+
+<p>若没有，那么需要一个一个使用 pip 命令安装，例如：<code class="highlighter-rouge">pip3 install django</code></p>
+
+<h4 id="修改设置构建静态文件数据库迁移">修改设置、构建静态文件、数据库迁移</h4>
+
+<p>在安装完所有需要的依赖以后，为了进一步保证冒烟测试能够成功。</p>
+
+<p>我们首先需要<strong>修改 Django 的设置</strong>：最主要的是，<strong>修改 Django 项目的 settings 文件，为 <code class="highlighter-rouge">ALLOWED</code> 添加服务器的 IP 地址</strong>，其它的需要视不同的项目而定。</p>
+
+<p>其次、我们要将静态文件构建至 static 文件夹下，此步<strong>需要在 settings 文件中修改/添加</strong>  <code class="highlighter-rouge">STATIC_ROOT = os.path.abspath(os.path.join(BASE_DIR, '../static'))</code> 然后，调用 <code class="highlighter-rouge">python manage.py collectstatic --noinput</code> <strong>将静态文件项目的静态文件构建至 static 文件夹下。</strong></p>
+
+<p>最后、我们要将必要的数据库文件迁移至 database 文件夹下，将 Django 的 settings 的 DATABASES 按照以下代码重新设置：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+</pre></td><td class="rouge-code"><pre><span class="n">DATABASES</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s">'default'</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s">'ENGINE'</span><span class="p">:</span> <span class="s">'django.db.backends.sqlite3'</span><span class="p">,</span>
+        <span class="s">'NAME'</span><span class="p">:</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">BASE_DIR</span><span class="p">,</span> <span class="s">'../database/db.sqlite3'</span><span class="p">),</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>使用 <code class="highlighter-rouge">python manage.py makemigrations</code> 和 <code class="highlighter-rouge">python manage.py migrate</code> 迁移数据库。</p>
+
+<h4 id="冒烟测试">冒烟测试</h4>
+<p>进行冒烟测试之前，还需要做一件事，到服务器厂商提供的管理页面<strong>将服务器的 80 、8000 端口，以及需要开启的端口开启</strong>，因为各个厂商的规则都不相同，所以这里不在赘述。</p>
+
+<p>开启后、<strong>使用 Django 自带的服务运行应用</strong> -&gt; <code class="highlighter-rouge">python manage.py runserver 0:8000</code></p>
+
+<p>在浏览器访问服务器ip:8000，若正常访问项目，那么说明 Django 没有问题。</p>
+
+<p>还可以<strong>使用 uWSGI 进行冒烟测试</strong>，首先关闭 Django 自带的服务，然后在项目目录下（<strong>wsgi.py 的上级目录</strong>）使用 <code class="highlighter-rouge">uwsgi --http  :8000 --module  项目.wsgi</code>。</p>
+
+<p>若在浏览器访问服务器ip:8000，若正常访问项目，那么说明 uWSGI 服务器没有问题。</p>
+
+<blockquote>
+  <p>停止 uwsgi 的命令：<code class="highlighter-rouge">pkill -f uwsgi -9</code></p>
+</blockquote>
+
+<h4 id="编写配置文件至能够正确运行">编写配置文件至能够正确运行</h4>
+<p>当冒烟测试没问题后，我们就要进行正式的服务器部署了，按照 <a href="https://halfclock.github.io/img/in-post/post-django-deploy/server-relation.png">Nginx 和 uWSGI 及 Django 框架的关系图</a> 我们首先需要将 uWSGI 和 Django 连接，所以<strong>需要编写 uWSGI 的配置文件</strong>、然后我们需要<strong>添加 systemd service</strong> 让此服务能够开机自启/崩溃自动重启、最后需要<strong>配置 nginx 让其和 uWSGI 连接</strong>起来。</p>
+
+<p>配置文件最好在项目文件夹中<strong>单独设立一个 deploy_tools 目录存放。</strong></p>
+
+<p>在 deploy_tools 添加 <code class="highlighter-rouge">uwsgi_conf.ini</code> uWSGI 配置文件：</p>
+
+<blockquote>
+  <p>以下配置文件的的内容参考自：<a href="https://www.jianshu.com/p/956debe2891d">这篇博客</a></p>
+</blockquote>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+</pre></td><td class="rouge-code"><pre><span class="c1">#配置域应该是uwsgi，记住这个不能丢，否则会报错
+</span><span class="p">[</span><span class="n">uwsgi</span><span class="p">]</span>
+<span class="c1"># uwsgi 监听的 socket，可以为 socket 文件或ip地址+端口号，用 nginx 的时候就配socket , 直接运行的时候配 http, http-socket = 127.0.0.1:8080
+</span>
+<span class="n">socket</span> <span class="o">=</span> <span class="mf">127.0.0.1</span><span class="p">:</span><span class="mi">8000</span> <span class="c1"># 配合 nginx 请使用这个，并注释掉下一行
+# http-socket = 127.0.0.1:8080 # 单独运行请使用这个，并注释掉上一行
+# socket = unix:/tmp/socket-name.socket # 可以使用 socket 文件监听，这其实是使用了进程间通信而不是端口监听，所以此时通信不需要走网络协议栈。
+</span>
+<span class="c1">#指定项目的目录，在 app 加载前切换到当前目录
+</span><span class="n">chdir</span> <span class="o">=</span> <span class="o">/</span><span class="n">home</span><span class="o">/</span><span class="n">site</span><span class="o">/</span><span class="n">IP</span> <span class="err">地址</span><span class="o">/</span><span class="n">source</span><span class="o">/</span><span class="err">项目目录</span>
+
+<span class="c1"># Django 的 wsgi 文件，用来加载 wsgi.py 这个模块
+</span><span class="n">module</span> <span class="o">=</span>  <span class="err">项目名</span><span class="o">.</span><span class="n">wsgi</span>
+<span class="c1"># Python 虚拟环境的路径
+</span><span class="n">home</span> <span class="o">=</span> <span class="o">/</span><span class="n">home</span><span class="o">/</span><span class="n">site</span><span class="o">/</span><span class="n">IP</span> <span class="err">地址</span><span class="o">/</span><span class="n">virtualenvs</span><span class="o">/</span>
+<span class="c1"># master 启动主进程。
+</span><span class="n">master</span> <span class="o">=</span> <span class="n">true</span>
+<span class="c1"># 最大数量的工作进程数
+</span><span class="n">processes</span> <span class="o">=</span> <span class="mi">10</span>
+<span class="c1"># 指定工作进程中的线程数
+</span><span class="n">threads</span> <span class="o">=</span> <span class="mi">2</span>
+
+<span class="c1"># 设置socket的权限
+</span><span class="n">chmod</span><span class="o">-</span><span class="n">socket</span> <span class="o">=</span> <span class="mi">664</span>
+<span class="c1"># 退出的时候是否清理环境，自动移除 unix Socket 和 Pid 文件
+</span><span class="n">vacuum</span> <span class="o">=</span> <span class="n">true</span>
+<span class="c1">#日志文件路径
+</span><span class="n">daemonize</span> <span class="o">=</span> <span class="o">../</span><span class="n">uwsgi</span><span class="o">.</span><span class="n">log</span>
+
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>内容填充完成后，还需要编写参数文件 <code class="highlighter-rouge">uwsgi_params</code> ,填充如下内容：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+</pre></td><td class="rouge-code"><pre><span class="n">uwsgi_param</span>  <span class="n">QUERY_STRING</span>       <span class="err">$</span><span class="n">query_string</span><span class="p">;</span>
+<span class="n">uwsgi_param</span>  <span class="n">REQUEST_METHOD</span>     <span class="err">$</span><span class="n">request_method</span><span class="p">;</span>
+<span class="n">uwsgi_param</span>  <span class="n">CONTENT_TYPE</span>       <span class="err">$</span><span class="n">content_type</span><span class="p">;</span>
+<span class="n">uwsgi_param</span>  <span class="n">CONTENT_LENGTH</span>     <span class="err">$</span><span class="n">content_length</span><span class="p">;</span>
+    
+<span class="n">uwsgi_param</span>  <span class="n">REQUEST_URI</span>        <span class="err">$</span><span class="n">request_uri</span><span class="p">;</span>
+<span class="n">uwsgi_param</span>  <span class="n">PATH_INFO</span>          <span class="err">$</span><span class="n">document_uri</span><span class="p">;</span>
+<span class="n">uwsgi_param</span>  <span class="n">DOCUMENT_ROOT</span>      <span class="err">$</span><span class="n">document_root</span><span class="p">;</span>
+<span class="n">uwsgi_param</span>  <span class="n">SERVER_PROTOCOL</span>    <span class="err">$</span><span class="n">server_protocol</span><span class="p">;</span>
+<span class="n">uwsgi_param</span>  <span class="n">REQUSET_SCHEME</span>     <span class="err">$</span><span class="n">scheme</span><span class="p">;</span>
+<span class="n">uwsgi_param</span>  <span class="n">HTTPS</span>              <span class="err">$</span><span class="n">https</span> <span class="n">if_not_empty</span><span class="p">;</span>
+    
+<span class="n">uwsgi_param</span>  <span class="n">REMOTE_ADDR</span>        <span class="err">$</span><span class="n">remote_addr</span><span class="p">;</span>
+<span class="n">uwsgi_param</span>  <span class="n">REMOTE_PORT</span>        <span class="err">$</span><span class="n">remote_port</span><span class="p">;</span>
+<span class="n">uwsgi_param</span>  <span class="n">SERVER_PORT</span>        <span class="err">$</span><span class="n">server_port</span><span class="p">;</span>
+<span class="n">uwsgi_param</span>  <span class="n">SERVER_NAME</span>        <span class="err">$</span><span class="n">server_name</span><span class="p">;</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>做完以后，使用 <code class="highlighter-rouge">uwsgi --ini qmblog_uwsgi.ini</code> 启动 uWSGI ，打开浏览器，若能够看到正常的项目页面，则配置成功。</p>
+
+<blockquote>
+  <p>需要牢记配置文件中的 socket 和 http-socket 配置需要严格区别。</p>
+</blockquote>
+
+<hr />
+<p>为了使服务器能够稳定运行，我们需要<strong>确保 uWSGI 在系统启动时运行，并保证在系统崩溃时重启。</strong></p>
+
+<p>在 <code class="highlighter-rouge">/etc/systemed/system/</code> 下新建 “服务名.service” 文件。填充如下内容：</p>
+
+<div class="language-shell highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+</pre></td><td class="rouge-code"><pre><span class="o">[</span>Unit] 
+Description <span class="o">=</span> uWSGI server <span class="k">for </span>自己的服务名
+
+<span class="o">[</span>Service] 
+Restart <span class="o">=</span> on-failure <span class="c"># 将在进程崩溃时自动重启</span>
+User <span class="o">=</span> 能够访问项目文件的用户名 
+WorkingDirectory <span class="o">=</span> 项目源码的根目录 <span class="c"># /home/site/IP 地址/source/</span>
+<span class="nv">ExecStart</span><span class="o">=</span> 虚拟环境目录/uwsgi <span class="nt">--ini</span> /home/site/IP 地址/source/项目目录/deploy/uwsgi_conf.ini <span class="c"># 实际运行的命令</span>
+
+<span class="o">[</span>Install] 
+<span class="nv">WantedBy</span><span class="o">=</span>multi-user.target <span class="c"># 告诉 Systemd 我们想在系统启动 boot 时即运行此服务</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>填充完成后 .service 文件后需要重新加载，以便以 Systemd 启动 uWSGI：</p>
+<ul>
+  <li><code class="highlighter-rouge">sudo systemctl daemon-reload</code> 告诉 Systemd 加载刚才编写的 .service 文件</li>
+  <li><code class="highlighter-rouge">sudo systemctl enable 服务名</code> 告诉 Systemd 永远在 boot 时启动该服务</li>
+  <li><code class="highlighter-rouge">sudo systemctl start 服务名</code> 实际启动服务名的命令</li>
+</ul>
+
+<hr />
+
+<p>最后，我们需要<strong>编写 nginx 的配置文件，以便让 nginx 和 uWSGI 能够连接</strong>。</p>
+
+<p>在 <code class="highlighter-rouge">/etc/nginx/sites-available </code> 目录下添加 <code class="highlighter-rouge">IP 地址.conf</code> 配置文件，填充如下内容：</p>
+
+<blockquote>
+  <p>以下配置文件的的内容参考自：<a href="https://www.jianshu.com/p/956debe2891d">这篇博客</a></p>
+</blockquote>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+</pre></td><td class="rouge-code"><pre><span class="c1">#配置文件内容：
+</span>
+<span class="c1"># 转发给哪个服务器，可以通过 upstream 配置项让 nginx 实现负载均衡，列表中的每一个 IP 都是一个真实服务器的 IP，若有本地的 uWSGI 还可以写 http://socket 文件。
+</span><span class="n">upstream</span> <span class="n">django</span> <span class="p">{</span>    
+    <span class="n">server</span>   <span class="mf">127.0.0.1</span><span class="p">:</span><span class="mi">8000</span><span class="p">;</span> 
+    <span class="n">server</span>   <span class="mf">127.0.1.1</span><span class="p">:</span><span class="mi">8000</span><span class="p">;</span> 
+<span class="p">}</span>
+
+<span class="c1"># 设定虚拟主机配置，一个http中可以有多个server。
+</span><span class="n">server</span> <span class="p">{</span>
+    <span class="c1"># 启动的nginx进程监听请求的端口
+</span>    <span class="n">listen</span>      <span class="mi">80</span><span class="p">;</span>
+    <span class="c1">#定义使用域名访问，若没有域名可以注释掉
+</span>    <span class="n">server_name</span>  <span class="err">域名</span><span class="p">;</span>  
+    <span class="n">charset</span>     <span class="n">utf</span><span class="o">-</span><span class="mi">8</span><span class="p">;</span>
+
+    <span class="c1"># max upload size  
+</span>    <span class="n">client_max_body_size</span> <span class="mi">75</span><span class="n">M</span><span class="p">;</span>    <span class="c1"># adjust to taste
+</span>
+    <span class="c1"># location 配置请求静态文件多媒体文件，比如图片文件目录，若无可以注释掉。
+</span>    <span class="n">location</span> <span class="o">/</span><span class="n">media</span>  <span class="p">{</span>
+        <span class="n">alias</span>  <span class="o">/</span><span class="n">home</span><span class="o">/</span><span class="n">site</span><span class="o">/</span><span class="n">IP</span> <span class="err">地址</span><span class="o">/</span><span class="n">media</span><span class="o">/</span><span class="p">;</span>  
+    <span class="p">}</span>
+    <span class="c1"># 静态文件访问的 url
+</span>    <span class="n">location</span> <span class="o">/</span><span class="n">static</span> <span class="p">{</span>
+        <span class="c1"># 指定静态文件存放的目录
+</span>        <span class="n">alias</span> <span class="o">/</span><span class="n">home</span><span class="o">/</span><span class="n">site</span><span class="o">/</span><span class="n">IP</span> <span class="err">地址</span><span class="o">/</span><span class="n">static</span><span class="o">/</span><span class="p">;</span>
+    <span class="p">}</span>
+
+<span class="c1">#  将所有非媒体请求转到 Django 服务器上
+</span>    <span class="n">location</span> <span class="o">/</span> <span class="p">{</span>
+        <span class="c1"># 包含 uwsgi 的请求参数，路径为 uwsgi_params 绝对路径
+</span>        <span class="n">include</span>  <span class="o">/</span><span class="n">home</span><span class="o">/</span><span class="n">site</span><span class="o">/</span><span class="n">IP</span> <span class="err">地址</span><span class="o">/</span><span class="n">source</span><span class="o">/</span><span class="err">项目目录</span><span class="o">/</span><span class="n">deploy</span><span class="o">/</span><span class="n">qmblog_uwsgi_params</span><span class="p">;</span> 
+        <span class="c1"># 转交请求给uwsgi
+</span>        <span class="n">uwsgi_pass</span>  <span class="n">django</span><span class="p">;</span>  <span class="c1">#这个 django 对应配置文件开头的 upstream django 配置项，对于动态请求，转发到本机的端口，也就是 uwsgi 监听的端口，uwsgi运行的主机和ip,后面我们会在本机的该端口上运行 uwsgi 进程
+</span>        <span class="c1"># 下面两个配置意思是如果比如通过http://www.xxx.com直接访问的是static下的index.html或者index.htm页面，一般用于将首页静态化
+</span>        <span class="c1">#root   /root/src/www/CainiaoBlog/static/;
+</span>        <span class="c1">#index index.html index.htm; 
+</span>    <span class="p">}</span>
+    
+    <span class="c1">#精确匹配不同于上面 / ，这里 http://www.xxx.com 会匹配这个，根据这个配置将请求转发给另外 nginx 服务器，让另外服务器提供静态首页。同上面的访问 index.html 在另外同一台服务器上同一配置文件中结合。
+</span>    <span class="c1">#location = / {
+</span>    <span class="c1">#   proxy_pass  http://ip:port;
+</span>    <span class="c1">#}
+</span><span class="p">}</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>配置文件中的 root 和 alias 的主要区别<strong>在于 nginx 如何解释 location 后面的 uri</strong>，这会使两者分别以不同的方式将请求映射到服务器文件上：</p>
+
+<ul>
+  <li>root 的处理结果是：root路径＋location路径</li>
+  <li>alias 的处理结果是：使用 alias 路径替换location路径</li>
+</ul>
+
+<p>填充完成以后，需要在 <code class="highlighter-rouge">/etc/nginx/sites-enabled </code> 目录下软连接刚才在 <code class="highlighter-rouge">/etc/nginx/sites-available </code> 目录下编写的 IP 地址.conf 文件。</p>
+
+<p>在 <code class="highlighter-rouge">/etc/nginx/sites-enabled </code> 目录下使用 <code class="highlighter-rouge">ln -s ../sites-available/IP 地址.conf</code>。</p>
+
+<blockquote>
+  <p><code class="highlighter-rouge">/etc/nginx/</code> 的两个文件夹 —— sites-enabled 和 sites-available 都可以存放 nginx 配置文件，但是，一般来讲 sites-available 存放着可以使用的 conf 文件，而 
+sites-enabled 是 nginx 运行时加载的 conf 文件真正存放的目录，所以<strong>通常 sites-enabled 里面放的都是 sites-available 里文件的软链接。</strong></p>
+</blockquote>
+
+<blockquote>
+  <p>注意 <code class="highlighter-rouge">/etc/nginx/sites-enabled </code> 中的其他文件最好删除掉，只剩刚才编写的配置文件</p>
+</blockquote>
+
+<p>然后，重新加载 nginx 配置： <code class="highlighter-rouge">nginx -s reload</code> 或者 <code class="highlighter-rouge">sudo systemctl reload nginx</code>。</p>
+
+<p>在浏览器中手动访问服务器，若能正常访问服务器则说明配置成功。</p>
+
+<h1 id="编写自动化部署脚本">编写自动化部署脚本</h1>
+
+<p>手动部署是为了更好的自动化部署，因为各服务器可能在某些细节上会有一些差异，我们必须先手动部署一遍确保没有坑，再尝试自动部署。</p>
+
+<p>为了在本地能够通过命令操纵服务器，和<strong>保证过程的可重复性</strong>。 我们需要在本地编写自动化部署的脚本，<strong>在这里我选择使用 python3 编写的开源工具包：fabric3</strong>进行脚本的编写。</p>
+
+<p>Fabric 是一个工具包，可<strong>自动执行要在服务器上运行的命令</strong>。通常需要写一个名为fabfile.py 的文件，它将包含一个或多个函数，这些函数稍后可以从名为 fab 的命令行工具调用，如下所示：</p>
+
+<p><code class="highlighter-rouge">fab function_name：host = USERNAME@SERVER_ADDRESS</code></p>
+
+<p>这将调用 function_name，使用账号 USERNAME <strong>建立与地址是 SERVER_ADDRESS 的服务器的连接。</strong> 还有很多其他选项可用于指定用户名和密码，可以使用 fab –help 了解这些选项。</p>
+
+<p>接下来我们编写 fabfile.py</p>
+
+<blockquote>
+  <p>这个文件在本地编写，当然尽可能的放在 deploy_tools 目录下</p>
+</blockquote>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+</pre></td><td class="rouge-code"><pre><span class="kn">from</span> <span class="nn">fabric.contrib.files</span> <span class="kn">import</span> <span class="n">append</span><span class="p">,</span> <span class="n">exists</span><span class="p">,</span> <span class="n">sed</span>
+<span class="kn">from</span> <span class="nn">fabric.api</span> <span class="kn">import</span> <span class="n">env</span><span class="p">,</span> <span class="n">local</span><span class="p">,</span> <span class="n">run</span>
+<span class="kn">import</span> <span class="nn">random</span>
+
+<span class="n">REPO_URL</span> <span class="o">=</span> <span class="s">'https://github.com/HalfClock/software_test.git'</span> <span class="c1"># 项目的源码仓库
+</span>
+<span class="k">def</span> <span class="nf">deploy</span><span class="p">():</span>
+    <span class="n">site_folder</span> <span class="o">=</span> <span class="n">f</span><span class="s">'/home/{env.user}/sites/{env.host}'</span> <span class="c1"># 建立根目录
+</span>    <span class="n">source_folder</span> <span class="o">=</span> <span class="n">site_folder</span> <span class="o">+</span> <span class="s">'/source'</span> 
+    <span class="n">_create_directory_structure_if_necessary</span><span class="p">(</span><span class="n">site_folder</span><span class="p">)</span> <span class="c1">#创建站点的文件目录
+</span>    <span class="n">_get_latest_source</span><span class="p">(</span><span class="n">source_folder</span><span class="p">)</span> <span class="c1"># 从 GIT 服务器上拉取最新的代码，并设置到最新的版本
+</span>    <span class="n">_update_settings</span><span class="p">(</span><span class="n">source_folder</span><span class="p">,</span> <span class="n">env</span><span class="o">.</span><span class="n">host</span><span class="p">)</span> <span class="c1"># 更改 Django 的 setting 文件
+</span>    <span class="n">_update_virtualenv</span><span class="p">(</span><span class="n">source_folder</span><span class="p">)</span> <span class="c1"># 创建虚拟环境
+</span>    <span class="n">_update_static_files</span><span class="p">(</span><span class="n">source_folder</span><span class="p">)</span> <span class="c1"># 构建静态文件
+</span>    <span class="n">_update_database</span><span class="p">(</span><span class="n">source_folder</span><span class="p">)</span> <span class="c1"># 迁移数据库
+</span>
+<span class="k">def</span> <span class="nf">_create_directory_structure_if_necessary</span><span class="p">(</span><span class="n">site_folder</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">subfolder</span> <span class="ow">in</span> <span class="p">(</span><span class="s">'database'</span><span class="p">,</span> <span class="s">'static'</span><span class="p">,</span> <span class="s">'virtualenv'</span><span class="p">,</span> <span class="s">'source'</span><span class="p">):</span>
+        <span class="n">run</span><span class="p">(</span><span class="n">f</span><span class="s">'mkdir -p {site_folder}/{subfolder}'</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">_get_latest_source</span><span class="p">(</span><span class="n">source_folder</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">exists</span><span class="p">(</span><span class="n">source_folder</span> <span class="o">+</span> <span class="s">'/.git'</span><span class="p">):</span>
+        <span class="n">run</span><span class="p">(</span><span class="n">f</span><span class="s">'cd {source_folder} &amp;&amp; git fetch'</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">run</span><span class="p">(</span><span class="n">f</span><span class="s">'git clone {REPO_URL} {source_folder}'</span><span class="p">)</span>
+    <span class="n">current_commit</span> <span class="o">=</span> <span class="n">local</span><span class="p">(</span><span class="s">"git log -n 1 --format=</span><span class="si">%</span><span class="s">H"</span><span class="p">,</span> <span class="n">capture</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+    <span class="n">run</span><span class="p">(</span><span class="n">f</span><span class="s">'cd {source_folder} &amp;&amp; git reset --hard {current_commit}'</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">_update_settings</span><span class="p">(</span><span class="n">source_folder</span><span class="p">,</span> <span class="n">site_name</span><span class="p">):</span>
+    <span class="n">settings_path</span> <span class="o">=</span> <span class="n">source_folder</span> <span class="o">+</span> <span class="s">'/superlists/settings.py'</span>
+    <span class="n">sed</span><span class="p">(</span><span class="n">settings_path</span><span class="p">,</span> <span class="s">"DEBUG = True"</span><span class="p">,</span> <span class="s">"DEBUG = False"</span><span class="p">)</span>
+    <span class="n">sed</span><span class="p">(</span><span class="n">settings_path</span><span class="p">,</span>
+        <span class="s">'ALLOWED_HOSTS =.+$'</span><span class="p">,</span>
+        <span class="n">f</span><span class="s">'ALLOWED_HOSTS = ["{site_name}"]'</span>
+    <span class="p">)</span>
+    <span class="n">secret_key_file</span> <span class="o">=</span> <span class="n">source_folder</span> <span class="o">+</span> <span class="s">'/superlists/secret_key.py'</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">exists</span><span class="p">(</span><span class="n">secret_key_file</span><span class="p">):</span>
+        <span class="n">chars</span> <span class="o">=</span> <span class="s">'abcdefghijklmnopqrstuvwxyz0123456789!@#$</span><span class="si">%</span><span class="s">^&amp;*(-_=+)'</span>
+        <span class="n">key</span> <span class="o">=</span> <span class="s">''</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">random</span><span class="o">.</span><span class="n">SystemRandom</span><span class="p">()</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">chars</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">50</span><span class="p">))</span>
+        <span class="n">append</span><span class="p">(</span><span class="n">secret_key_file</span><span class="p">,</span> <span class="n">f</span><span class="s">'SECRET_KEY = "{key}"'</span><span class="p">)</span>
+    <span class="n">append</span><span class="p">(</span><span class="n">settings_path</span><span class="p">,</span> <span class="s">'</span><span class="se">\n</span><span class="s">from .secret_key import SECRET_KEY'</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">_update_virtualenv</span><span class="p">(</span><span class="n">source_folder</span><span class="p">):</span>
+    <span class="n">virtualenv_folder</span> <span class="o">=</span> <span class="n">source_folder</span> <span class="o">+</span> <span class="s">'/../virtualenv'</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">exists</span><span class="p">(</span><span class="n">virtualenv_folder</span> <span class="o">+</span> <span class="s">'/bin/pip'</span><span class="p">):</span>
+        <span class="c1">#run(f'python3.6 -m venv {virtualenv_folder}')
+</span>        <span class="n">run</span><span class="p">(</span><span class="n">f</span><span class="s">'virtualenv -p /usr/bin/python3 {virtualenv_folder}'</span><span class="p">)</span>
+    <span class="n">run</span><span class="p">(</span><span class="n">f</span><span class="s">'{virtualenv_folder}/bin/pip install -r {source_folder}/requirements.txt'</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">_update_static_files</span><span class="p">(</span><span class="n">source_folder</span><span class="p">):</span>
+    <span class="n">run</span><span class="p">(</span>
+        <span class="n">f</span><span class="s">'cd {source_folder}'</span>
+        <span class="s">' &amp;&amp; ../virtualenv/bin/python manage.py collectstatic --noinput'</span>
+    <span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">_update_database</span><span class="p">(</span><span class="n">source_folder</span><span class="p">):</span>
+    <span class="n">run</span><span class="p">(</span>
+        <span class="n">f</span><span class="s">'cd {source_folder}'</span>
+        <span class="s">' &amp;&amp; ../virtualenv/bin/python manage.py migrate --noinput'</span>
+    <span class="p">)</span>
+
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>实际上，<strong>上面这个自动部署脚本做的事情和手动部署做的事情基本一样，只不过是将手动部署需要输入的命令统一起来，按顺序自动执行罢了。</strong>就算换一种自动部署的方式，不用 fabric3 使用 shell 脚本，其流程也差不多。</p>
+
+<p>上面的脚本还差配置 uWSGI、systemd server 、nginx 的配置文件没有自动化生成和重新加载，这部分也可以使用差不多的逻辑使用 run(命令) 来进行自动化生成和重新加载，<strong>但是出于安全因素，此部分最好还是运维人员使用 root 账户手动配置比较好。</strong></p>
+
+<p>最后使用 <code class="highlighter-rouge">fab deploy：host = USERNAME@SERVER_ADDRESS</code> 进行自动化部署。</p>
+
+<h1 id="end">End</h1>
+
+<p>本篇博客总结了 Django 在真实的云服务器（Ubuntu）上部署的流程。首先，我们讨论了真实部署面临的一些问题，以及云服务器上安装对应的服务以避免这些问题。</p>
+
+<p>然后，我们手动部署了一遍项目，这个过程包括设置一个合理的站点目录、用 GIT 管理代码、创建项目的虚拟环境、修改项目设置、构建静态文件和数据库迁移，并编写了 uWSGI、systemd server 、nginx 的配置文件使他们能够正常的通信。</p>
+
+<p>最后，我们借用 fabric3 说明了自动化部署的原理及流程，并编写了一个自动化部署脚本。</p>
+
+<p>希望这篇博客能够对你有所帮助。</p>
+
+<blockquote>
+  <p>本篇博文的很多内容均借鉴自这篇<a href="https://www.jianshu.com/p/956debe2891d">博客</a>，如果你想要手把手的教程，这篇博客能够帮助到你。</p>
+</blockquote>
+:ET

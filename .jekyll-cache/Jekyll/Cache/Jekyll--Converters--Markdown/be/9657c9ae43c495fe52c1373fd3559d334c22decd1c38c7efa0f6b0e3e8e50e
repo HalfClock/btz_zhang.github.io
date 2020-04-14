@@ -1,0 +1,4 @@
+I"3<blockquote>
+  <p>这篇博文讲述的 python 协程是<strong>不正式的、宽泛的协程</strong>，即通过客户调用 .send(…) 方法发送数据或使用 yield from 结构驱动的生成器函数，<strong>而不是 asyncio 库采用的定义更为严格的协程。</strong></p>
+</blockquote>
+:ET

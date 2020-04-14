@@ -1,0 +1,373 @@
+I"�c<h1 id="说在前面">说在前面</h1>
+<p>你可能听说过 <strong>python 元编程</strong>的大名，使用元编程技术可以在程序运行中<strong>动态的创建属性甚至动态创建类</strong>。本博文<strong>暂时不会讲述元编程的关键知识，而是讲述进行元编程所要知道的的基础知识</strong>，用以更好的理解 python 元编程的原理和性质。</p>
+
+<p>本篇博文，包括接下来的几篇博文，会讲述<strong>相对零散的元编程基础知识</strong>、本篇讲述如何使用 python 特性来管理实例属性；</p>
+
+<p>接下来、我会说明 python 特性的本质——属性描述符、及<strong>使用属性描述符来更好的管理类的实例属性。</strong></p>
+
+<p>再下一篇博文则会<strong>系统的说明 python 中属性描述符的分类与性质</strong>，甚至会说明 python 如何使用非覆盖型属性描述符实现类方法；</p>
+
+<p>再下一篇博文则会说明 <strong>python 在导入时和运行时分别会做出的动作</strong>。</p>
+
+<p>最后的两篇博文则会讲述 python 中的<strong>元编程技术，包括动态创建属性及动态创建类</strong></p>
+
+<h1 id="元编程相关博文的目录及链接">元编程相关博文的目录及链接</h1>
+<ol>
+  <li><a href="https://halfclock.github.io/2019/06/01/python-property/">使用 python 特性管理实例属性</a></li>
+  <li><a href="https://halfclock.github.io/2019/06/03/python-descriptor_01/">浅析 python 属性描述符（上）</a></li>
+  <li><a href="https://halfclock.github.io/2019/06/04/python-descriptor_02/">浅析 python 属性描述符（下）</a></li>
+  <li><a href="https://halfclock.github.io/2019/06/07/python-import-and-running/">python 导入时与运行时</a></li>
+  <li><a href="https://halfclock.github.io/2019/06/09/python-metacoding/">python 元编程之动态属性</a></li>
+  <li><a href="https://halfclock.github.io/2019/06/10/python-class-metacoding/">python 元编程之类元编程</a></li>
+</ol>
+
+<h1 id="管理属性的古老方法---set---get-">管理属性的古老方法 -&gt; set( ) / get( )</h1>
+
+<p>在实际的面向对象编程中，很多场景下必须使用一定的<strong>存储逻辑来管理实例属性</strong>，使应用程序能够正常使用。</p>
+
+<p>例如，在水果零售系统中，客户在购买水果时可以指定购买几斤该水果、可以看到关于该水果的描述、单价等信息，当然还需要根据单价和重量来决定最后的售价，那么水果的类可以这样表示:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+</pre></td><td class="rouge-code"><pre><span class="k">class</span> <span class="nc">Fruits</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">price</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">description</span><span class="p">):</span>
+        <span class="c1"># 水果的描述
+</span>        <span class="bp">self</span><span class="o">.</span><span class="n">description</span> <span class="o">=</span> <span class="n">description</span>
+        <span class="c1"># 水果的价格
+</span>        <span class="bp">self</span><span class="o">.</span><span class="n">price</span> <span class="o">=</span> <span class="n">price</span>
+        <span class="c1"># 水果的重量
+</span>        <span class="bp">self</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">weight</span>
+
+    <span class="k">def</span> <span class="nf">subtotal</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># 小记
+</span>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">price</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>但是这似乎不太合理，如果水果店老板不小心把水果的 price 设置成负数，或者顾客恶意的把 weight 设置成负数，那么水果店可能过两天就倒闭了。</p>
+
+<p>为了防止这样的情况出现、<strong>我们必须设置 price 和 weight 的存储规则、使其被设置的时候不能设置小于零的数。</strong></p>
+
+<p><strong>那么传统的方法是：使用 set() 和 get() 来管理，顺序是：</strong></p>
+<ol>
+  <li>为了<strong>不能直接使用 “ . ” 直接访问</strong>，我们必须将相关的属性都设置成私有（python 里的做法是在属性前加双下划线）。</li>
+  <li><strong>为了能够使用存储规则存储数据</strong>，我们必须提供一系列的 set 和 get 方法。</li>
+</ol>
+
+<p>这样做之后的代码如下：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+</pre></td><td class="rouge-code"><pre><span class="k">class</span> <span class="nc">Fruits</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">price</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">description</span><span class="p">):</span>
+        <span class="c1"># 水果的描述
+</span>        <span class="bp">self</span><span class="o">.</span><span class="n">__description</span> <span class="o">=</span> <span class="n">description</span>
+        <span class="c1"># 水果的价格
+</span>        <span class="bp">self</span><span class="o">.</span><span class="n">__price</span> <span class="o">=</span> <span class="n">price</span>
+        <span class="c1"># 水果的重量
+</span>        <span class="bp">self</span><span class="o">.</span><span class="n">__weight</span> <span class="o">=</span> <span class="n">weight</span>
+        
+    <span class="k">def</span> <span class="nf">set_description</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__description</span> <span class="o">=</span> <span class="n">value</span>
+    
+    <span class="k">def</span> <span class="nf">get_description</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__description</span>
+    
+    <span class="k">def</span> <span class="nf">set_price</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">value</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__price</span> <span class="o">=</span> <span class="n">value</span>
+    
+    <span class="k">def</span> <span class="nf">get_price</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__price</span>
+    
+    <span class="k">def</span> <span class="nf">set_weight</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">value</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__weight</span> <span class="o">=</span> <span class="n">value</span>
+    
+    <span class="k">def</span> <span class="nf">get_weight</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__weight</span>
+
+    <span class="k">def</span> <span class="nf">subtotal</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># 小记
+</span>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__price</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">__weight</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>上面的代码中，我为 price 、weight、description 都设置的 set() 和 get() 方法，其中 price  、 weight 还设置了小于零的值无法存储的规则。</p>
+
+<p>这是传统的管理属性的方法，毫无疑问也是最简单的管理方法。</p>
+
+<p>然而、这样做的弊端也很明显：</p>
+
+<ol>
+  <li>首先、<strong>不能够方便的使用 “ . ” 来访问属性了</strong>，编写程序时，还必须多写几个字母。</li>
+  <li>一堆 set() 和 get() 方法不仅写起来费劲，而且<strong>容易掩盖住真正重要的业务逻辑方法—— subtotal 方法。</strong></li>
+  <li>如果水果店的老板需要给水果增加一些有同样存储逻辑属性，你<strong>依然得重新编写 set() 和 get() 方法。</strong></li>
+  <li><strong>想要修改某一个 set/get 时，寻找某个属性的 set/get 方法的过程就需要花费大量的时间。</strong></li>
+</ol>
+
+<p>尽管，像 idea 这种 java IDE 已经有了方便的自动生成 get/set 的功能。但是这依旧没法有效的解决上面几个弊端。</p>
+
+<p>简单的使用 python 的 property 装饰器能够解决第一、二个弊端，如下一小节所示。</p>
+
+<h1 id="使用-property-管理属性">使用 property 管理属性</h1>
+<p>使用 property 装饰器管理属性，不仅能够使用 “ . ” 方便的访问属性，还能在存取值时加上自己需要的规则。</p>
+
+<p>下面这段代码是在最初的 Fruits 类改善而来的：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+</pre></td><td class="rouge-code"><pre><span class="o">&gt;&gt;&gt;</span> <span class="k">class</span> <span class="nc">Fruits</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">price</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">description</span><span class="p">):</span>
+        <span class="c1"># 水果的描述
+</span>        <span class="bp">self</span><span class="o">.</span><span class="n">description</span> <span class="o">=</span> <span class="n">description</span>
+        <span class="c1"># 水果的价格
+</span>        <span class="bp">self</span><span class="o">.</span><span class="n">price</span> <span class="o">=</span> <span class="n">price</span>
+        <span class="c1"># 水果的重量
+</span>        <span class="bp">self</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">weight</span>
+
+    <span class="o">@</span><span class="nb">property</span>  <span class="c1"># ①
+</span>    <span class="k">def</span> <span class="nf">weight</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">"get:苹果的重量"</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__weight</span>
+
+    <span class="o">@</span><span class="n">weight</span><span class="o">.</span><span class="n">setter</span> <span class="c1"># ②
+</span>    <span class="k">def</span> <span class="nf">weight</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">"set:苹果的重量"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">value</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__weight</span> <span class="o">=</span> <span class="n">value</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="nb">ValueError</span><span class="p">(</span><span class="s">"想干嘛呢？"</span><span class="p">)</span> <span class="c1"># ③
+</span>
+    <span class="k">def</span> <span class="nf">subtotal</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># 小记
+</span>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">price</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight</span>
+
+<span class="o">&gt;&gt;&gt;</span> <span class="n">apple</span> <span class="o">=</span> <span class="n">Fruits</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="s">"apple"</span><span class="p">)</span> <span class="c1"># ④
+</span><span class="nb">set</span><span class="p">:</span><span class="err">苹果的重量</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">apple</span><span class="o">.</span><span class="n">weight</span> <span class="c1"># ⑤
+</span><span class="n">get</span><span class="p">:</span><span class="err">苹果的重量</span>
+<span class="mi">2</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">apple</span><span class="o">.</span><span class="n">subtotal</span><span class="p">()</span>
+<span class="mi">20</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">apple</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span> <span class="c1"># ⑥
+</span><span class="nb">set</span><span class="p">:</span><span class="err">苹果的重量</span>
+<span class="n">Traceback</span> <span class="p">(</span><span class="n">most</span> <span class="n">recent</span> <span class="n">call</span> <span class="n">last</span><span class="p">):</span>
+<span class="o">...</span>
+<span class="nb">ValueError</span><span class="p">:</span> <span class="err">想干嘛呢？</span> <span class="c1"># ⑦
+</span></pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>在上面的代码中：</p>
+
+<p>①: 使用 <code class="highlighter-rouge">@property</code> 装饰器装饰 weight 函数，注意:<strong>该函数返回的不是 self.weight 而是 self.__weight。</strong></p>
+
+<p>②: <strong>函数在使用<code class="highlighter-rouge">@property</code> 装饰器装饰后，会变成类属性（特性），而且会有一个 setter 方法，该方法也是一个装饰器，作用是装饰同属性(特性)的 set 函数。</strong>被装饰的函数必须与属性（被<code class="highlighter-rouge">@property</code> 装饰器装饰的函数）同名。</p>
+
+<p>③: 当 value 小于零时，不能设值，应当抛出异常。</p>
+
+<p>④: 创建一个 Fruits 对象 apple 用于测试特性的行为是否符合预期。注意：<strong>在构造 apple 实例时 init 特殊方法会调用由 <code class="highlighter-rouge">@weight.setter</code> 装饰的方法，输出“set:苹果的重量”字符串。</strong></p>
+
+<p>⑤: 可以使用 “ . ” 访问 weight，并且<strong>访问是通过 <code class="highlighter-rouge">@property</code> 装饰的函数访问的。</strong></p>
+
+<p>⑥: 尝试为 apple 实例设置 weight 为 -1。</p>
+
+<p>⑦: <strong>apple.weight = -1 语句访问的是由 <code class="highlighter-rouge">@weight.setter</code> 装饰的方法</strong>，并且因为 value 不满足预期，程序抛出异常。</p>
+
+<hr />
+<blockquote>
+  <p><strong>首先我们必须知道、python 特性都是类属性、但是特性管理的其实是实例属性的存取。</strong></p>
+</blockquote>
+
+<p>由上面这个例子，可以得到使用 <code class="highlighter-rouge">@property</code> 的方法：</p>
+
+<ol>
+  <li>使用 <code class="highlighter-rouge">@property</code> 装饰器<strong>装饰的函数会变成该类的特性，特性名就是函数名。</strong></li>
+  <li>之后使用 <code class="highlighter-rouge">@特性名.setter</code> 装饰器装饰该特性的 “set 方法”，<strong>此方法名必须与特性名一致。</strong></li>
+</ol>
+
+<p>当类函数被 <code class="highlighter-rouge">@property</code> 装饰时，实际上，这个函数已经成为了该类的特性，<strong>也就是该类的类属性了</strong>，这个过程在解释器导入该模块时就已经确定了。这可以通过观察上例中的 ④ 得到。</p>
+
+<p>因为我们注意到，在实例初始化时，self.weight = weight 会调用 weight 特性的 set 方法。</p>
+
+<p><strong>实际上，在实例初始化前，weight 就已经是 Fruits 类的特性了。</strong>使用 <code class="highlighter-rouge">self.weight</code> ，解释器会调用 weight 特性的 get 方法。使用 <code class="highlighter-rouge">self.weight = 某个值</code> ，解释器会调用 weight 特性的 set 方法。</p>
+
+<p><strong>那么 python 要怎么知道 weight 是否是 Fruits 类的特性呢？</strong>换句话说，python 怎么知道 <code class="highlighter-rouge">self.weight = 2</code> 语句该访问 weight 特性的 set 方法，还是该新建实例属性 weight 呢？</p>
+
+<p>通常，python 按照以下流程图来执行 <code class="highlighter-rouge">self.weight = 2</code> 语句：
+<img src="/img/in-post/post-python-property/15594841902205.jpg" alt="" /></p>
+
+<p>对应的文字描述是：</p>
+<ol>
+  <li>先去 Fruits 类中搜索，看有没 weight 特性，若有，那么直接调用该特性的 set 方法。</li>
+  <li>若在 Fruits 类中搜索不到特性，那么去实例的属性中寻找，是否有 weight 这个属性，若有为这个属性重新设值。</li>
+  <li>若实例中的属性也没有 weight ，那么创建实例属性，并赋值。</li>
+</ol>
+
+<p><strong>实际上，执行 <code class="highlighter-rouge">self.weight </code> 语句也是按照此流程，只不过，set 方法替换成了 get 方法，赋值变成了取值，最后如果实例属性也没有 weight ，那么会抛出异常。</strong></p>
+
+<blockquote>
+  <p>这个流程图也使用于覆盖类型的属性描述符，什么是覆盖类型的属性描述符，我将在下一篇博文中介绍</p>
+</blockquote>
+
+<h1 id="特性是用于管理实例属性的">特性是用于管理实例属性的</h1>
+<p>再强调一遍、<strong>所有的特性都是类属性、但特性管理的是实例属性的存取。</strong></p>
+
+<p>必须要注意到，上例中、无论是 get 方法还是 set 方法，最终操作的对象都是实例属性<code class="highlighter-rouge">__weight</code></p>
+
+<p>再将代码列出：</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+</pre></td><td class="rouge-code"><pre>    <span class="o">@</span><span class="nb">property</span>
+    <span class="k">def</span> <span class="nf">weight</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">"get:苹果的重量"</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__weight</span>
+
+    <span class="o">@</span><span class="n">weight</span><span class="o">.</span><span class="n">setter</span>
+    <span class="k">def</span> <span class="nf">weight</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">"set:苹果的重量"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">value</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__weight</span> <span class="o">=</span> <span class="n">value</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="nb">ValueError</span><span class="p">(</span><span class="s">"想干嘛呢？"</span><span class="p">)</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+<p><strong>被 @property 装饰的 weight 方法为什么不能返回 self.weight 呢？</strong></p>
+
+<p>首先、特性应该管理实例属性，而现在的 weight 已经是类属性了。</p>
+
+<p>其次，如果写成 <code class="highlighter-rouge">return self. weight</code> 那么调用方 get 到的是 weight 特性、<strong>程序会调用 weight 特性的 “get” 方法，如此一来，程序陷入无限递归。</strong></p>
+
+<blockquote>
+  <p>在理解这句话时，请配合上一小节的流程图理解。</p>
+</blockquote>
+
+<p>若在初始化实例后，查看该实例的实例属性，那么<strong>会看到 weight 特性的 set 方法为 apple 的私有属性设了值。</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+</pre></td><td class="rouge-code"><pre><span class="o">&gt;&gt;&gt;</span> <span class="n">apple</span> <span class="o">=</span> <span class="n">Fruits</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="s">"apple"</span><span class="p">)</span>
+<span class="nb">set</span><span class="p">:</span><span class="err">苹果的重量</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="nb">vars</span><span class="p">(</span><span class="n">apple</span><span class="p">)</span>
+<span class="p">{</span><span class="s">'description'</span><span class="p">:</span> <span class="s">'apple'</span><span class="p">,</span> <span class="s">'price'</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span> <span class="s">'_Fruits__weight'</span><span class="p">:</span> <span class="mi">2</span><span class="p">}</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>同样、使用 weight 特性的 get 方法时，其实是取上面代码中的 <code class="highlighter-rouge">_Fruits__weight</code> 属性。</p>
+
+<h1 id="结语">结语</h1>
+<p>可以看出，我们已经使用 python 特性解决了古老的 set()/get() 方法所不能解决的两个弊端，<strong>最直观的好处是、我们可以用 “.” 来方便的访问属性了。</strong></p>
+
+<p>其次，在使用了 <code class="highlighter-rouge">@property</code> 和 <code class="highlighter-rouge">@特性名.setter</code> 装饰器以后，<strong>我们可以很清楚的看出哪些方法是用于处理存储逻辑的，哪些是处理业务逻辑的。</strong></p>
+
+<blockquote>
+  <p>换句话说、特性解决了统一访问的问题，即无需通过访问方法的方式来访问属性，通过直接访问属性也能够实现存储逻辑的控制。</p>
+</blockquote>
+
+<hr />
+
+<p>但是、在上述代码中，我只是重写了 weight 属性的特性，若我再将 price 属性相关的特性也写出，<strong>那么代码依旧会变得冗长</strong>。</p>
+
+<p>并且、<strong>weight 属性与 price 属性的存储逻辑是一致的</strong>，即不能存小于零的数，如果只使用特性，那么我们就不得不为 price 再写一遍几乎同样的代码，这让人心烦。</p>
+
+<hr />
+
+<p>好在，python 的 <code class="highlighter-rouge">@property</code> 装饰器，是由类来实现的，<strong>该类实现了全部的属性描述符的接口</strong>，也可以说，<strong>property 装饰器本身就是一种属性描述符</strong>。</p>
+
+<p>那么，如果我们自己编写属性描述符类，再将 weight 和 price 设置为 Fruits 的类属性，并且赋予他们属性描述符实例，就可以减少代码的重复了。</p>
+
+<hr />
+
+<p>什么是属性描述符？如何使用属性描述符来解决古老的 set()/get() 方法无法顾及的弊端呢？
+请看下一篇博文。</p>
+
+:ET

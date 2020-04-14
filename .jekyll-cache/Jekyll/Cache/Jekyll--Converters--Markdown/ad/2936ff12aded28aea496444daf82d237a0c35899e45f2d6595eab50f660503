@@ -1,0 +1,515 @@
+I"��<blockquote>
+  <p>这篇博文讲述的 python 协程是<strong>不正式的、宽泛的协程</strong>，即通过客户调用 .send(…) 方法发送数据或使用 yield from 结构驱动的生成器函数，<strong>而不是 asyncio 库采用的定义更为严格的协程。</strong></p>
+</blockquote>
+
+<h1 id="前言">前言</h1>
+<p>在<strong>事件驱动型编程</strong>中，协程常用于离散事件的仿真（在单个线程中使用一个主循环驱动协程执行并发活动）。</p>
+
+<p>协程通过显式<strong>自主地把控制权让步给中央调度程序</strong>从而实现了<em>协作式多任务</em>。</p>
+
+<p>所以，<strong>协程是 python 事件驱动型框架和协作式多任务的基础。</strong></p>
+
+<p>那么，弄明白协程的<strong>进化过程</strong>、基本行为和<strong>高效的使用方式</strong>是很有必要的。</p>
+
+<p>本博文想要解释清楚 python 协程的基本行为以及如何高效的使用协程。</p>
+
+<blockquote>
+  <p>在阅读本文之前，你必须要了解 python 中 yield 关键字、和生成器的基本概念。如果你还不知道这两个概念是啥，你可以看我的上一篇博文：<a href="https://halfclock.github.io/2019/04/20/python-iterator-and-generator/">浅析 python 迭代器与生成器</a> 或者通过<a href="https://blog.csdn.net/mieleizhi0522/article/details/82142856"> CSDN 上冯爽朗的博文</a> 简单了解 yield 关键字的使用方法。</p>
+</blockquote>
+
+<h1 id="从生成器到协程">从生成器到协程</h1>
+<blockquote>
+  <p>协程是指一个过程，这个过程与调用方协作，即<strong>根据调用方提供的值</strong>产出相应的值<strong>给调用方。</strong></p>
+</blockquote>
+
+<p>从协程的定义来看，协程的部分行为和带有 yield 关键字生成器的行为类似，因为调用方可以使用 .next() 方法<strong>让生产器产出值给调用方。例如，这个斐波那契生成器函数：</strong></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+</pre></td><td class="rouge-code"><pre><span class="o">&gt;&gt;&gt;</span> <span class="k">def</span> <span class="nf">fibonacci</span><span class="p">():</span>
+        <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="k">yield</span> <span class="n">a</span>
+            <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">b</span><span class="p">,</span> <span class="n">a</span> <span class="o">+</span> <span class="n">b</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+<p>调用方调用 next（）函数可以<strong>获取它的产出值</strong>：</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+</pre></td><td class="rouge-code"><pre><span class="o">&gt;&gt;&gt;</span> <span class="n">f</span> <span class="o">=</span> <span class="n">fibonacci</span><span class="p">()</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="k">print</span><span class="p">(</span><span class="nb">next</span><span class="p">(</span><span class="n">f</span><span class="p">))</span>
+<span class="mi">0</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="k">print</span><span class="p">(</span><span class="nb">next</span><span class="p">(</span><span class="n">f</span><span class="p">))</span>
+<span class="mi">1</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+<p>这么看来，<strong>生成器的行为离协程的行为就差一步，即接收调用方提供的值。</strong></p>
+
+<p>在 python 2.5 后 yield 关键字就可以在表达式中使用了，而且生成器 API 中增加了 .send(value)方法。<strong>生成器的调用方可以使用 .send(…) 方法给生成器发送数据。</strong></p>
+
+<p>这样一来生成器就可以接收调用方提供的值了，<strong>其接收的数据会成为 yield 表达式的值。</strong></p>
+
+<p>例一是一个简单的例子，来说明调用方如何发送数据及生成器如何接受数据。</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+</pre></td><td class="rouge-code"><pre><span class="o">&gt;&gt;&gt;</span> <span class="k">def</span> <span class="nf">coroutine</span><span class="p">():</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'-- 协程开始 --'</span><span class="p">)</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="k">yield</span> <span class="s">'Nothing'</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'-- 协程接收到了数据: {!r} -- '</span><span class="o">.</span><span class="nb">format</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>
+
+<span class="o">&gt;&gt;&gt;</span> <span class="n">coro</span> <span class="o">=</span> <span class="n">coroutine</span><span class="p">()</span>
+<span class="o">&lt;</span><span class="n">generator</span> <span class="nb">object</span> <span class="n">coroutine</span> <span class="n">at</span> <span class="mh">0x10bbb2408</span><span class="o">&gt;</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="nb">next</span><span class="p">(</span><span class="n">coro</span><span class="p">)</span>
+<span class="o">--</span> <span class="err">协程开始</span> <span class="o">--</span>
+<span class="n">Nothing</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">coro</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">77</span><span class="p">)</span>
+<span class="o">--</span> <span class="err">协程接收到了数据</span><span class="p">:</span> <span class="mi">77</span> <span class="o">--</span>
+<span class="n">Traceback</span> <span class="p">(</span><span class="n">most</span> <span class="n">recent</span> <span class="n">call</span> <span class="n">last</span><span class="p">):</span>
+<span class="o">...</span>
+<span class="nb">StopIteration</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+<p>上面的例子表明：</p>
+<ol>
+  <li>在协程中，<strong>yield 通常出现在表达式的右边。</strong></li>
+  <li>调用方先使用一次 .next() 执行 yield ‘Nothing’ 让协程产出字符串 “Nothing” 并<strong>悬停至至 yield 表达式这一行</strong></li>
+  <li>调用方使用 .send() 发送数据给协程。</li>
+  <li>发送的<strong>数据代替 yield 表达式</strong>，并赋给变量 x。</li>
+  <li><strong>协程结束时与生成器一致，都会抛出 StopIteration 异常。</strong></li>
+</ol>
+
+<p>需要特别注意的地方有：
+<strong>首先、调用方只有在协程停在了 yield 表达式时，才能调用 .send() 发送数据</strong>，否则，协程会抛出 TypeError 异常，如例二：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+</pre></td><td class="rouge-code"><pre><span class="o">&gt;&gt;&gt;</span> <span class="n">coro</span> <span class="o">=</span> <span class="n">coroutine</span><span class="p">()</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">coro</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">77</span><span class="p">)</span>
+<span class="n">Traceback</span> <span class="p">(</span><span class="n">most</span> <span class="n">recent</span> <span class="n">call</span> <span class="n">last</span><span class="p">):</span>
+ <span class="o">...</span> <span class="ow">in</span> <span class="n">coro</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">77</span><span class="p">)</span>
+<span class="nb">TypeError</span><span class="p">:</span> <span class="n">can</span><span class="s">'t send non-None value to a just-started generator</span><span class="err">
+</span></pre></td></tr></tbody></table></code></pre></div></div>
+<blockquote>
+  <p>悬停在 yield 表达式的协程状态是 <code class="highlighter-rouge">GEN_SUSPENDED</code> ，你可以使用<code class="highlighter-rouge">inspect.getgeneratorstate(...) </code>函数确定协程的状态。</p>
+</blockquote>
+
+<p><strong>其次、调用方使用 .send(y) 发送的数据会代替协程中的 yield 表达式</strong>，在上例中,发送的数据 y 是 77 ,77 代替了 yield 表达式，并赋给了变量 x。</p>
+
+<p><strong>最后、当赋值完毕后、协程会继续前进至下一个 yield 关键字并悬停</strong>，直至结束从而抛出 StopIteration 异常。</p>
+
+<p>你可以把 .send( y ) 看做两个部分的结合，即:</p>
+<ol>
+  <li>yield 表达式 = y</li>
+  <li>.next()</li>
+</ol>
+
+<p>这样一来，拥有 .send（）方法的生成器，完全符合了协程的定义，它可以通<strong>过 .send() 接受调用方传递的值，并且可以通过 yield 产出值给调用方。</strong></p>
+
+<p>不过，此时我们没有办法在一创建协程时，立马使用它。</p>
+
+<p>你必须要先使用一次 .next() 让协程悬停在 yield 表达式那一行，从而使协程转变至 <code class="highlighter-rouge">GEN_SUSPENDED 状态</code>。这样的行为被称作<strong>预激协程。</strong></p>
+
+<h1 id="预激协程">预激协程</h1>
+<blockquote>
+  <p>毫无疑问，预激协程是一个很容易被遗忘的步骤。
+需要使用 .send() 发送数据之前还必须使用一次 .next()，这让人感到厌烦。</p>
+</blockquote>
+
+<p>我们有什么办法能够自动预激协程呢？</p>
+
+<p>有一种方法是使用能够提前调用一次  .next() 的装饰器，如下面这个 coroutine 装饰器：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+</pre></td><td class="rouge-code"><pre><span class="c1"># BEGIN CORO_DECO
+</span><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">wraps</span>
+
+<span class="o">&gt;&gt;&gt;</span><span class="k">def</span> <span class="nf">coroutine_deco</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+        <span class="s">"""Decorator: primes `func` by advancing to first `yield`"""</span>
+        <span class="o">@</span><span class="n">wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>  <span class="c1">#使用 functools.wraps 装饰器获得源 func 的所有参数 "*args,**kwargs"
+</span>        <span class="k">def</span> <span class="nf">primer</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span> 
+            <span class="n">gen</span> <span class="o">=</span> <span class="n">func</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="c1">#使用源生成器函数获取生成器
+</span>            <span class="nb">next</span><span class="p">(</span><span class="n">gen</span><span class="p">)</span> <span class="c1">#调用 .next 方法
+</span>            <span class="k">return</span> <span class="n">gen</span> <span class="c1">#返回调用 .next 方法后的生成器
+</span>        <span class="k">return</span> <span class="n">primer</span>
+    <span class="c1"># END CORO_DECO
+</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+<blockquote>
+  <p>网上有多个类似的装饰器。这个改自 ActiveState 中的一个诀窍——<a href="http://code.activestate.com/recipes/578265-pipeline-made-of-coroutines/">Pipeline made of coroutines</a>，作者是 Chaobin Tang，而他是受到了 David Beazley 的启发。—— 《流畅的 python 》</p>
+</blockquote>
+
+<p>使用这个装饰器后，现在我们再运行例二的代码就不会报 TypeError 异常，而是会正常运行了，如下：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+</pre></td><td class="rouge-code"><pre><span class="o">@</span><span class="n">coroutine_deco</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="k">def</span> <span class="nf">coroutine</span><span class="p">():</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'-- 协程开始 --'</span><span class="p">)</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="k">yield</span> <span class="s">'Nothing'</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'协程接收到了数据: {!r}'</span><span class="o">.</span><span class="nb">format</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>
+
+<span class="o">&gt;&gt;&gt;</span> <span class="n">coro</span> <span class="o">=</span> <span class="n">coroutine</span><span class="p">()</span>
+<span class="o">--</span> <span class="err">协程开始</span> <span class="o">--</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="kn">import</span> <span class="nn">inspect</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">inspect</span><span class="o">.</span><span class="n">getgeneratorstate</span><span class="p">(</span><span class="n">coro</span><span class="p">)</span>
+<span class="n">GEN_SUSPENDED</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">cro</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">77</span><span class="p">)</span>
+<span class="err">协程接收到了数据</span><span class="p">:</span> <span class="mi">77</span>
+<span class="n">Traceback</span> <span class="p">(</span><span class="n">most</span> <span class="n">recent</span> <span class="n">call</span> <span class="n">last</span><span class="p">):</span>
+<span class="o">...</span>
+<span class="nb">StopIteration</span>
+<span class="o">&gt;&gt;&gt;</span><span class="n">inspect</span><span class="o">.</span><span class="n">getgeneratorstate</span><span class="p">(</span><span class="n">coro</span><span class="p">)</span>
+<span class="n">GEN_CLOSED</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+<p>该例子有如下行为需要注意：</p>
+<ul>
+  <li>在创建协程 coro 对象后，直接输出了 “– 协程开始 –” 字符串，这表明，<strong>在创建协程对象后，其自动调用了一次 next() 方法。</strong></li>
+  <li>使用 <code class="highlighter-rouge">inspect.getgeneratorstate</code> 查看协程的状态，发现其已经是 <code class="highlighter-rouge">GEN_SUSPENDED</code> 状态，<strong>说明协程内部已经悬停在 yield 关键字处。</strong></li>
+  <li>能够直接调用 .send() 方法而不用事先使用 .next() 了。</li>
+  <li>协程结束时的状态是 <code class="highlighter-rouge">GEN_CLOSED</code></li>
+</ul>
+
+<blockquote>
+  <p>协程还有一个很常用的方法 —— .close() 用于提前关闭协程。使用该方法后，协程会在 yield 表达式那一行抛出 GeneratorExit 异常。</p>
+</blockquote>
+
+<p>有时，我们需要协程在结束了所有工作时，返回一个值，<strong>这在 python 3.3 之前是不可能的，因为在协程的方法体中写 return 关键字会报句法错误。</strong></p>
+
+<h1 id="让协程在终止时返回值">让协程在终止时返回值</h1>
+
+<p>我们可以在 python 3.3 及之后的版本中<strong>让终止的协程返回想要的值</strong>，只是获取返回值的方法比较曲折。</p>
+
+<p>下面的例三，定义了一个动态计算平均值的协程，并让其在结束工作（接受到 None 值）后<strong>返回一个元组</strong>，该元组保存着目前为止收到的数据个数以及最终的平均值。</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+</pre></td><td class="rouge-code"><pre><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">namedtuple</span>
+
+<span class="o">&gt;&gt;&gt;</span> <span class="n">Result</span> <span class="o">=</span> <span class="n">namedtuple</span><span class="p">(</span><span class="s">'Result'</span><span class="p">,</span> <span class="s">'count average'</span><span class="p">)</span>
+
+<span class="o">&gt;&gt;&gt;</span> <span class="k">def</span> <span class="nf">averager</span><span class="p">():</span>
+        <span class="n">total</span> <span class="o">=</span> <span class="mf">0.0</span>
+        <span class="n">count</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">average</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="n">term</span> <span class="o">=</span> <span class="k">yield</span> <span class="n">average</span>
+            <span class="k">if</span> <span class="n">term</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">break</span>  
+            <span class="n">total</span> <span class="o">+=</span> <span class="n">term</span>
+            <span class="n">count</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">average</span> <span class="o">=</span> <span class="n">total</span><span class="o">/</span><span class="n">count</span>
+        <span class="k">return</span> <span class="n">Result</span><span class="p">(</span><span class="n">count</span><span class="p">,</span> <span class="n">average</span><span class="p">)</span>  
+        
+</pre></td></tr></tbody></table></code></pre></div></div>
+<p>该函数有以下行为：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+</pre></td><td class="rouge-code"><pre><span class="o">&gt;&gt;&gt;</span> <span class="n">coro_avg</span> <span class="o">=</span> <span class="n">averager</span><span class="p">()</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="nb">next</span><span class="p">(</span><span class="n">coro_avg</span><span class="p">)</span> <span class="c1"># &lt;1&gt;
+</span><span class="o">&gt;&gt;&gt;</span> <span class="n">coro_avg</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>  <span class="c1"># &lt;2&gt;
+</span><span class="mf">10.0</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">coro_avg</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">30</span><span class="p">)</span>
+<span class="mf">20.0</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">coro_avg</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mf">6.5</span><span class="p">)</span>
+<span class="mf">15.5</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">coro_avg</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>  <span class="c1"># &lt;3&gt;
+</span><span class="n">Traceback</span> <span class="p">(</span><span class="n">most</span> <span class="n">recent</span> <span class="n">call</span> <span class="n">last</span><span class="p">):</span>
+<span class="o">...</span>
+<span class="nb">StopIteration</span><span class="p">:</span> <span class="n">Result</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">average</span><span class="o">=</span><span class="mf">15.5</span><span class="p">)</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+<p>注释：<br />
+① : 手动预激协程。<br />
+② : 调用 .send(10) 返回目前传入所有数的平均值10、之后每传入一个数都能实时计算所有数的平均值。<br />
+③ : 传入 None ，手动结束该协程。</p>
+
+<p>注意到，和往常一样，结束后<strong>协程抛出了 StopIteration 异常</strong>。不一样的是，<strong>该异常保存着返回的值</strong>，即 Result 对象。</p>
+
+<blockquote>
+  <p>return 表达式的值会偷偷传给调用方，赋值给 StopIteration 异常的一个属性。这样做有点不合常理，但是能<strong>保留生成器对象的常规行为</strong>——耗尽时抛出 StopIteration 异常。</p>
+</blockquote>
+
+<p>改造上面的代码，手动捕获异常，获取返回值，可以这样写：</p>
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+</pre></td><td class="rouge-code"><pre><span class="o">&gt;&gt;&gt;</span> <span class="n">coro_avg</span> <span class="o">=</span> <span class="n">averager</span><span class="p">()</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="nb">next</span><span class="p">(</span><span class="n">coro_avg</span><span class="p">)</span> 
+<span class="o">&gt;&gt;&gt;</span> <span class="n">coro_avg</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>  
+<span class="mf">10.0</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">coro_avg</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">30</span><span class="p">)</span>
+<span class="mf">20.0</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">coro_avg</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mf">6.5</span><span class="p">)</span>
+<span class="mf">15.5</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="k">try</span><span class="p">:</span>
+        <span class="n">coro_avg</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span> 
+    <span class="k">except</span> <span class="nb">StopIteration</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span> 
+        <span class="n">result</span> <span class="o">=</span> <span class="n">exc</span><span class="o">.</span><span class="n">value</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">result</span> 
+<span class="n">Result</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">average</span><span class="o">=</span><span class="mf">15.5</span><span class="p">)</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>目前，我们说明了如何让<strong>生成器接收调用方提供的值从而进化成协程</strong>、如何<strong>使用装饰器自动预激协程</strong>、以及<strong>如何从协程获取看起来很有用的返回值。</strong></p>
+
+<p><strong>使用协程似乎太麻烦了点 ！</strong></p>
+
+<p>不是吗？ 为了避免麻烦，我们必须自己定义一个自动预激协程的装饰器，为了获取协程的返回值，我们还必须捕捉异常，并获取异常的 value 属性。</p>
+
+<p>有什么办法能够消除这些麻烦呢?（不用自定义预激装饰器也不用捕获异常以获得返回值）</p>
+
+<p><strong>在 python 3.3 以后，有一个新的句法能够帮助我们解决这些麻烦，即 yield from</strong></p>
+
+<h1 id="yield-from-及其工作原理">yield from 及其工作原理</h1>
+
+<p>使用 yield from 关键字<strong>不仅能自动预激协程</strong>、<strong>自动提取异常的 value 属性返回值作为 yield from 表达式的值</strong>，还能够<strong>作为调用方和协程之间的通道</strong>。</p>
+
+<p>如果将例三中的 averager() 改编成使用 yield from 关键字来实现，会是例四的代码：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+</pre></td><td class="rouge-code"><pre><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">namedtuple</span>
+
+<span class="o">&gt;&gt;&gt;</span> <span class="n">Result</span> <span class="o">=</span> <span class="n">namedtuple</span><span class="p">(</span><span class="s">'Result'</span><span class="p">,</span> <span class="s">'count average'</span><span class="p">)</span>
+
+<span class="o">&gt;&gt;&gt;</span> <span class="k">def</span> <span class="nf">averager</span><span class="p">():</span>
+        <span class="n">total</span> <span class="o">=</span> <span class="mf">0.0</span>
+        <span class="n">count</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">average</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="n">term</span> <span class="o">=</span> <span class="k">yield</span> <span class="n">average</span>
+            <span class="k">if</span> <span class="n">term</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">break</span>  
+            <span class="n">total</span> <span class="o">+=</span> <span class="n">term</span>
+            <span class="n">count</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">average</span> <span class="o">=</span> <span class="n">total</span><span class="o">/</span><span class="n">count</span>
+        <span class="k">return</span> <span class="n">Result</span><span class="p">(</span><span class="n">count</span><span class="p">,</span> <span class="n">average</span><span class="p">)</span>  
+
+<span class="o">&gt;&gt;&gt;</span> <span class="n">result</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span> <span class="c1"># &lt;1&gt;
+</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="k">def</span> <span class="nf">yf_averager</span><span class="p">(</span><span class="n">result</span><span class="p">):</span> <span class="c1"># &lt;2&gt;
+</span>        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span> <span class="c1"># &lt;3&gt;
+</span>            <span class="n">r</span> <span class="o">=</span> <span class="k">yield</span> <span class="k">from</span> <span class="n">averager</span><span class="p">()</span> <span class="c1"># &lt;4&gt;
+</span>            <span class="n">result</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">r</span><span class="p">)</span>
+            
+<span class="o">&gt;&gt;&gt;</span> <span class="n">yfa</span> <span class="o">=</span> <span class="n">yf_averager</span><span class="p">(</span><span class="n">result</span><span class="p">)</span> <span class="c1"># &lt;5&gt;
+</span><span class="o">&gt;&gt;&gt;</span> <span class="nb">next</span><span class="p">(</span><span class="n">yfa</span><span class="p">)</span>  <span class="c1"># &lt;6&gt;
+</span><span class="o">&gt;&gt;&gt;</span> <span class="n">yfa</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span> <span class="c1"># &lt;7&gt;
+</span><span class="mf">10.0</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">yfa</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">30</span><span class="p">)</span>
+<span class="mf">20.0</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">yfa</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mf">6.5</span><span class="p">)</span>
+<span class="mf">15.5</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">yfa</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span> <span class="c1"># &lt;8&gt;
+</span><span class="o">&gt;&gt;&gt;</span> <span class="n">result</span>  <span class="c1"># &lt;9&gt;
+</span><span class="p">{</span><span class="n">Result</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">average</span><span class="o">=</span><span class="mf">15.5</span><span class="p">)}</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+<p>在例四中，averager() 方法并没有做任何改变<br />
+解释：<br />
+①：创建 result 集合以在调用方收集结果。<br />
+②：yield from 关键字的<strong>载体函数</strong>，有时也叫“委派生成器” ，设立这一函数是因为<strong>在函数外部使用 yield from（以及 yield）会导致句法错误。</strong><br />
+③：使用循环以保证传入 None 时 <strong>yf_averager 生成器不抛出 StopIteration 异常</strong>从而直接结束整个程序，若是如此，我们便观察不到 result 了。<br />
+④：使用 yield from 关键字后面是<strong>协程</strong>、前面是接收协程最终返回值的变量 r，这个 r 我们最终会放在全局变量 result 集合中。还有一点需要注意、<strong>当函数体重含有 yield from 那么它本身就是协程了</strong>。<br />
+⑤：新建 yf_averager 协程，以<strong>建立调用方与 averager 协程的通道</strong><br />
+⑥：预激 yf_averager 协程<br />
+⑦：使用 .send（）发送数据<br />
+⑧：发送 None 以结束 averager 协程<br />
+⑨：展示 result 集合中的值，确认接收到了最终的结果</p>
+
+<p>上面如果上面这个例子你不怎么看得懂，没关系，我会在后面解释。<br />
+你现在<strong>只需要知道 yield from 有这些行为：</strong></p>
+
+<ol>
+  <li>在例四中，我们没有预激 averager 协程，但是它能够正常工作。<strong>这说明 yield from 关键字会自动预激协程。</strong></li>
+  <li>调用方使用委派生成器 yf_averager 传入的值会送到 averager 里，并且调用方可以接收到 averager 协程处理后返回的值。<strong>这说明了使用 yield from 的委派生成器 yf_averager 可以在调用方和协程之间建立通道，传输数据。</strong></li>
+  <li>在获取 averager 结果时，我们没有捕获异常，而是在第 22 行代码中将返回值直接赋给了变量 r。<strong>这说明了协程的最终返回值会成为 yield from 表达式的值。</strong></li>
+</ol>
+
+<hr />
+<h4 id="yield-from-关键字的原理">yield from 关键字的原理</h4>
+
+<p>接下来这段伪码等效于 <strong>RESULT = yield from EXPR 语句</strong>。它能够帮助你理解例四中 yield from 的行为</p>
+<blockquote>
+  <p>这并不是完整的伪代码，它去除了 .throw（）和 .close（）方法，只处理 StopIteration 异常。完整的伪码在这里 -&gt; <a href="https://github.com/HalfClock/example-code/blob/master/16-coroutine/yield_from_expansion.py">yield_from_expansion</a>，不过在理解其功能的方面上，这足够了。</p>
+</blockquote>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+</pre></td><td class="rouge-code"><pre><span class="n">_i</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">(</span><span class="n">EXPR</span><span class="p">)</span>  <span class="c1"># &lt;1&gt;
+</span><span class="k">try</span><span class="p">:</span>
+    <span class="n">_y</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">_i</span><span class="p">)</span>  <span class="c1"># &lt;2&gt;
+</span><span class="k">except</span> <span class="nb">StopIteration</span> <span class="k">as</span> <span class="n">_e</span><span class="p">:</span>
+    <span class="n">_r</span> <span class="o">=</span> <span class="n">_e</span><span class="o">.</span><span class="n">value</span>  <span class="c1"># &lt;3&gt;
+</span><span class="k">else</span><span class="p">:</span>
+    <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>  <span class="c1"># &lt;4&gt;
+</span>        <span class="n">_s</span> <span class="o">=</span> <span class="k">yield</span> <span class="n">_y</span>  <span class="c1"># &lt;5&gt;
+</span>        <span class="k">try</span><span class="p">:</span>
+            <span class="n">_y</span> <span class="o">=</span> <span class="n">_i</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">_s</span><span class="p">)</span>  <span class="c1"># &lt;6&gt;
+</span>        <span class="k">except</span> <span class="nb">StopIteration</span> <span class="k">as</span> <span class="n">_e</span><span class="p">:</span>  <span class="c1"># &lt;7&gt;
+</span>            <span class="n">_r</span> <span class="o">=</span> <span class="n">_e</span><span class="o">.</span><span class="n">value</span>
+            <span class="k">break</span>
+
+<span class="n">RESULT</span> <span class="o">=</span> <span class="n">_r</span>  <span class="c1"># &lt;8&gt;
+</span></pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>解释：  <br />
+① ：EXPR 可以是任何可迭代的对象，因为获取迭代器 _i（这是子生成器，例子中的 averager 协程）使用的是 iter() 函数。<br />
+② ：<strong>预激子生成器（averager 协程）；结果保存在 _y 中，作为产出的第一个值。</strong><br />
+③ ：如果抛出 StopIteration 异常，<strong>获取异常对象的 value 属性，赋值给 _r</strong>——这是最简单情况下的返回值（RESULT）。<br />
+④ ：运行这个循环时，委派生成器（yf_averager 生成器）会阻塞，<strong>只作为调用方和子生成器之间的通道</strong>。<br />
+⑤ ：<strong>产出子生成器当前产出的元素；等待调用方发送 _s 中保存的值。</strong>因为这一个 yield 表达式和 ⑥ 中的send()，<strong>委派生成器也变成了协程。</strong><br />
+⑥ ：尝试让子生成器向前执行，<strong>转发调用方发送的 _s</strong>。<br />
+⑦ ：如果子生成器抛出 StopIteration 异常，<strong>获取 value 属性的值，赋值给 _r</strong>，然后退出循环，让委派生成器恢复运行。<br />
+⑧ ：<strong>返回的结果（RESULT）是 _r</strong>，即整个 yield from 表达式的值。</p>
+
+<blockquote>
+  <p>以上的伪代码和注释，几户原封不动的搬了《流程的 python 》里的解释，我只是增加了一些注释。因为我想不出如何更好的总结 yield from 关键字的原理。</p>
+</blockquote>
+
+<p>注意，因为 yf_averager 是带 yield 关键字的生成器，所以在 ⑧ 结束后，<strong>若找不到下一个 yield 关键字，那么 yf_averager 生成器会抛出 StopIteration 异常</strong>，这是我在例四中设立 while 循环 ③ 的直接原因。</p>
+
+<blockquote>
+  <p>我建议你在看懂这段伪代码的基础上再去<strong>回顾例四</strong>，这下你<strong>应该豁然开朗</strong>了。如果还看不懂的话，我建议你多花些时间去看《流程的 python 》的第十六章，该章用了60多页的篇幅把 python 协程讲得很通透。</p>
+</blockquote>
+
+<h1 id="结语">结语</h1>
+<p>本篇博文中，我用了四个小节叙述了我理解中的协程、及其使用技巧。在一开始，我讲述了<strong>协程是什么</strong>，及<strong>如何在 python 2.2 及以后的版本中用生成器构建协程</strong>；然后我讲述了<strong>协程的必要操作（预激）的自动化方法</strong>和<strong>如何在 python 3.3 及以后的版本中获取协程的返回值</strong>；最后，我讲述了方便的 <strong>yield from 关键字的用法、行为</strong>以及<strong>它的主要原理</strong>。</p>
+
+<p>如果你想要知道<strong>协程的具体用处</strong>，《流程的 python 》的第十六章中举了一个离散事件仿真的例子——<strong>出租车队运营仿真</strong>。该仿真程序会创建几辆出租车，并模拟他们并行运作（离开仓库、寻找乘客、乘客下次、四处徘徊、回家）。对于说明如何使用协程做离散事件仿真是一个很好的例子。</p>
+
+<blockquote>
+  <p>这是那个出租车队运营仿真例子的源码 -&gt; <a href="https://github.com/HalfClock/example-code/blob/master/16-coroutine/taxi_sim.py">taxi_sim</a></p>
+</blockquote>
+
+<p>我希望你看完这篇博文后能够有所收获、如果你看到了一些错误，请在评论中指出。</p>
+
+:ET

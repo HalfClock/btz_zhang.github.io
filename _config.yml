@@ -125,3 +125,12 @@ friends: [
     href: "https://www.ljwstruggle.com"
 }
 ]
+
+countdate:
+  year:           1996
+  month:          5
+  day:            10
+  hour:           10
+  minute:         0
+  second:         0
+  millisecond:    0

@@ -1,0 +1,428 @@
+I"�{<h1 id="元编程相关博文的目录及链接">元编程相关博文的目录及链接</h1>
+<p>这篇博文是元编程系列博文中的其中一篇、这个系列中其他博文的目录和连接见下：</p>
+
+<ol>
+  <li><a href="https://halfclock.github.io/2019/06/01/python-property/">使用 python 特性管理实例属性</a></li>
+  <li><a href="https://halfclock.github.io/2019/06/03/python-descriptor_01/">浅析 python 属性描述符（上）</a></li>
+  <li><a href="https://halfclock.github.io/2019/06/04/python-descriptor_02/">浅析 python 属性描述符（下）</a></li>
+  <li><a href="https://halfclock.github.io/2019/06/07/python-import-and-running/">python 导入时与运行时</a></li>
+  <li><a href="https://halfclock.github.io/2019/06/09/python-metacoding/">python 元编程之动态属性</a></li>
+  <li><a href="https://halfclock.github.io/2019/06/10/python-class-metacoding/">python 元编程之类元编程</a></li>
+</ol>
+
+<h1 id="preview">Preview</h1>
+
+<p>Python 导入时和运行时的概念不像 Java 语言一样易于区分。</p>
+
+<p>Java 的 import 只是告诉 Java 编译器需要特定的包，<strong>而 Python 则不同</strong>，Python 的首次 import 会 “执行所有的顶层代码” <strong>甚至可以做所有运行时能够做到的事。</strong></p>
+
+<p>这篇文章是为了说明白 Python 导入时与运行时的行为差异，并总结出一些经验准则。</p>
+
+<p>将这篇文章纳入元编程系列文章的原因是：<strong>了解了这一部分概念以后能够帮助我们理解元编程的相关概念。</strong></p>
+
+<h1 id="导入时与运行时的概念">导入时与运行时的概念</h1>
+
+<p>Python 有两种<strong>执行代码</strong>的方式：</p>
+
+<ol>
+  <li>通过命令行方式执行 Python 脚本。<strong>(运行时)</strong></li>
+  <li>将代码从一个文件首次导入到另一个文件/解释器中。<strong>(导入时/import)</strong></li>
+</ol>
+
+<p><strong>这两种方式分别对应着导入时与运行时。</strong> 也就是说，我们接下来要弄明白的是：</p>
+
+<p>假设我们有一个编写好的 python 脚本(test.py)，那么我们在使用命令行使用命令 <code class="highlighter-rouge">python  test.py</code> 和 <code class="highlighter-rouge">import test.py</code> <strong>分别会发生什么</strong>，并尝试总结出有用的经验准则。</p>
+
+<h1 id="测试代码">测试代码</h1>
+
+<p>为了能够看清首次导入时究竟会发生什么，我们需要提供一个有着<strong>类、函数、普通顶层代码</strong>的相对复杂的 <code class="highlighter-rouge">evaltime.py</code> 文件，还需要在这个文件中再导入另一个 <code class="highlighter-rouge">evalsupport.py</code> 文件，<strong>用以观察在各种不同条件下的行为</strong>，<code class="highlighter-rouge">evaltime.py</code>代码如下：</p>
+
+<blockquote>
+  <p>以下代码都是《流畅的 python》第二十一章第三节的源码，作者 Luciano Ramalho 也是通过这两个类来总结导入时与运行时的行为差异，我觉得设计的很好。</p>
+</blockquote>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+</pre></td><td class="rouge-code"><pre><span class="kn">from</span> <span class="nn">evalsupport</span> <span class="kn">import</span> <span class="n">deco_alpha</span>
+
+<span class="k">print</span><span class="p">(</span><span class="s">'&lt;[1]&gt; evaltime module start'</span><span class="p">)</span>
+
+<span class="k">class</span> <span class="nc">ClassOne</span><span class="p">():</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[2]&gt; ClassOne body'</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[3]&gt; ClassOne.__init__'</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[4]&gt; ClassOne.__del__'</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">method_x</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[5]&gt; ClassOne.method_x'</span><span class="p">)</span>
+
+    <span class="k">class</span> <span class="nc">ClassTwo</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[6]&gt; ClassTwo body'</span><span class="p">)</span>
+
+<span class="o">@</span><span class="n">deco_alpha</span>
+<span class="k">class</span> <span class="nc">ClassThree</span><span class="p">():</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[7]&gt; ClassThree body'</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">method_y</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[8]&gt; ClassThree.method_y'</span><span class="p">)</span>
+
+<span class="k">class</span> <span class="nc">ClassFour</span><span class="p">(</span><span class="n">ClassThree</span><span class="p">):</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[9]&gt; ClassFour body'</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">method_y</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[10]&gt; ClassFour.method_y'</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">'__main__'</span><span class="p">:</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[11]&gt; ClassOne tests'</span><span class="p">,</span> <span class="mi">30</span> <span class="o">*</span> <span class="s">'.'</span><span class="p">)</span>
+    <span class="n">one</span> <span class="o">=</span> <span class="n">ClassOne</span><span class="p">()</span>
+    <span class="n">one</span><span class="o">.</span><span class="n">method_x</span><span class="p">()</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[12]&gt; ClassThree tests'</span><span class="p">,</span> <span class="mi">30</span> <span class="o">*</span> <span class="s">'.'</span><span class="p">)</span>
+    <span class="n">three</span> <span class="o">=</span> <span class="n">ClassThree</span><span class="p">()</span>
+    <span class="n">three</span><span class="o">.</span><span class="n">method_y</span><span class="p">()</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[13]&gt; ClassFour tests'</span><span class="p">,</span> <span class="mi">30</span> <span class="o">*</span> <span class="s">'.'</span><span class="p">)</span>
+    <span class="n">four</span> <span class="o">=</span> <span class="n">ClassFour</span><span class="p">()</span>
+    <span class="n">four</span><span class="o">.</span><span class="n">method_y</span><span class="p">()</span>
+
+<span class="k">print</span><span class="p">(</span><span class="s">'&lt;[14]&gt; evaltime module end'</span><span class="p">)</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p><code class="highlighter-rouge">evalsupport.py</code>代码如下：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+</pre></td><td class="rouge-code"><pre><span class="k">print</span><span class="p">(</span><span class="s">'&lt;[100]&gt; evalsupport module start'</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">deco_alpha</span><span class="p">(</span><span class="n">cls</span><span class="p">):</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[200]&gt; deco_alpha'</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">inner_1</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[300]&gt; deco_alpha:inner_1'</span><span class="p">)</span>
+
+    <span class="n">cls</span><span class="o">.</span><span class="n">method_y</span> <span class="o">=</span> <span class="n">inner_1</span>
+    <span class="k">return</span> <span class="n">cls</span>
+
+
+<span class="k">class</span> <span class="nc">MetaAleph</span><span class="p">(</span><span class="nb">type</span><span class="p">):</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[400]&gt; MetaAleph body'</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">bases</span><span class="p">,</span> <span class="n">dic</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[500]&gt; MetaAleph.__init__'</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">inner_2</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">'&lt;[600]&gt; MetaAleph.__init__:inner_2'</span><span class="p">)</span>
+
+        <span class="n">cls</span><span class="o">.</span><span class="n">method_z</span> <span class="o">=</span> <span class="n">inner_2</span>
+
+
+<span class="k">print</span><span class="p">(</span><span class="s">'&lt;[700]&gt; evalsupport module end'</span><span class="p">)</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>在 <code class="highlighter-rouge">evaltime.py</code> 中有着：</p>
+<ol>
+  <li>像 <code class="highlighter-rouge">print('&lt;[1]&gt; evaltime module start')</code> 一样的<strong>顶层代码</strong>。</li>
+  <li>像 ClassOne、ClassTwo、ClassThree、ClassFour 的<strong>类定义体</strong>；<strong>ClassOne、ClassTwo 还是嵌套关系</strong>。</li>
+  <li>在类中有诸多的类方法，甚至 ClassOne 类还定义了 <strong><code class="highlighter-rouge">__init__</code>，<code class="highlighter-rouge">__del__</code> magic 方法。</strong></li>
+  <li><strong>ClassFour 继承了 ClassThree</strong></li>
+  <li>ClassThree 有一个<strong>类装饰器</strong> <code class="highlighter-rouge">deco_alpha</code>，来自于另一个模块 — <code class="highlighter-rouge">evalsupport.py</code>。</li>
+</ol>
+
+<p>在 <code class="highlighter-rouge">evalsupport.py</code> 中有着：</p>
+<ol>
+  <li>像 <code class="highlighter-rouge">print('&lt;[100]&gt; evalsupport module start')</code> 一样的<strong>顶层代码</strong>。</li>
+  <li>一个函数定义 <code class="highlighter-rouge">deco_alpha</code>，其嵌套这一个函数 <code class="highlighter-rouge">inner_1</code>。(此函数是类装饰器函数)</li>
+  <li>有一个类定义 <code class="highlighter-rouge">MetaAleph</code>，其中 <code class="highlighter-rouge">__init__</code> 有一个嵌套函数 <code class="highlighter-rouge">inner_2</code></li>
+</ol>
+
+<p>这两个函数基本已经<strong>囊括了 python 代码的所有应用场景</strong>、包括顶层代码、类、函数、magic 方法、嵌套类、嵌套函数、类继承、装饰器、导入模块。</p>
+
+<p>接下来我们将观察在<strong>首次导入时</strong>与<strong>运行时</strong> python 分别会做出什么动作。</p>
+
+<blockquote>
+  <p>Luciano Ramalho 建议你在看下去前先自己拿纸和笔将自己认为的程序输出写在纸上，我也是这么做的，第一次这么做让我明白了自己在认知上的差错。</p>
+</blockquote>
+
+<h1 id="导入时解析">导入时解析</h1>
+<p>在 <strong>python 命令行</strong>中运行 <code class="highlighter-rouge">import evaltime.py</code> 会得到以下输出：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+</pre></td><td class="rouge-code"><pre><span class="o">&lt;</span><span class="p">[</span><span class="mi">100</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">evalsupport</span> <span class="n">module</span> <span class="n">start</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">400</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">MetaAleph</span> <span class="n">body</span> 
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">700</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">evalsupport</span> <span class="n">module</span> <span class="n">end</span> 
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">evaltime</span> <span class="n">module</span> <span class="n">start</span> 
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassOne</span> <span class="n">body</span> 
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">6</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassTwo</span> <span class="n">body</span> 
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">7</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassThree</span> <span class="n">body</span> 
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">200</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">deco_alpha</span> 
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">9</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassFour</span> <span class="n">body</span> 
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">14</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">evaltime</span> <span class="n">module</span> <span class="n">end</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>下面对上面的 10 行代码做出解释：</p>
+
+<ol>
+  <li>导入时，python <strong>会执行 <code class="highlighter-rouge">evaltime.py</code> 所导入的 <code class="highlighter-rouge">evalsupport.py</code> 模块中的所有顶层代码。</strong></li>
+  <li><code class="highlighter-rouge">evalsupport.py</code> 中的 deco_alpha 方法体没有执行，<strong>实际上 python 编译了 deco_alpha 函数，但是不会执行定义体</strong>。<strong>MetaAleph 类的定义体运行了</strong>，但是其中的 <code class="highlighter-rouge">__init__</code> magic 方法没有执行。</li>
+  <li>原因见 1</li>
+  <li>python 会<strong>执行 <code class="highlighter-rouge">evaltime.py</code> 的所有顶层代码。</strong></li>
+  <li>ClassOne 的类定义体也执行了、但是类方法没有执行。</li>
+  <li><strong>嵌套于 ClassOne 的 ClassTwo 类的定义体也执行了。</strong></li>
+  <li>ClassThree 的<strong>类定义体先于它的类装饰器方法体执行了。</strong></li>
+  <li><strong>类装饰器 deco_alpha 在被其装饰的 ClassThree 后执行了方法体</strong>，但是嵌套其中的函数 <code class="highlighter-rouge">inner_1</code> 没有执行。</li>
+  <li>ClassFour 类执行了类方法体，但是貌似与其父类 ClassThree 没有关联。</li>
+  <li>原因见 4</li>
+</ol>
+
+<p><strong>值得注意的是：这些输出只会在首次 import 时看见</strong>，之后再次 import 就不会有任何输出了。</p>
+
+<p><strong>原因是：</strong>在首次导入时，解释器会从上到下一次性解析完 .py 模块的源码，然后生成用于执行的字节码，并将其存入 <code class="highlighter-rouge">__pycache__</code> 的 .pyc 文件中。如果有句法错误，则会在此时报告。</p>
+
+<p>当本地的 <code class="highlighter-rouge">__pycache__</code> 文件中有最新的 .pyc 文件，那么解释器则会跳过上述步骤，因为已经有运行所需的字节码了。</p>
+
+<h4 id="导入时总结">导入时总结:</h4>
+<p>在 python 命令行<strong>首次输入</strong> <code class="highlighter-rouge">import A</code> 时会按照<strong>代码顺序</strong>执行以下几条：</p>
+
+<ol>
+  <li><strong>会执行模块 A 中的所有顶层代码。</strong></li>
+  <li><strong>会执行模块 A 导入的所有模块的顶层代码(上例中的 evalsupport.py)。</strong></li>
+  <li><strong>执行的顶层代码中</strong>：
+    <ol>
+      <li><strong>若是类的定义体，那么会执行类的定义体、但是只会编译类方法，不会执行类方法定义体。</strong></li>
+      <li><strong>若是函数，则解释器只会编译此函数，不会执行函数定义体。</strong></li>
+    </ol>
+  </li>
+  <li><strong>在执行的类的定义体中</strong>：
+    <ol>
+      <li><strong>若是嵌套类</strong>，那么会执行嵌套类的定义体，规则与第三条规则中的类定义体情况一致。</li>
+      <li>若该类被装饰、<strong>在执行完类定义体后执行装饰器函数定义体。</strong></li>
+      <li>与该类是否是某个类的子类无关（正常执行）。</li>
+    </ol>
+  </li>
+  <li><strong>执行装饰器函数定义体中</strong>：
+    <ol>
+      <li><strong>若是嵌套函数，那么只会编译此函数，不会执行该函数定义体。</strong></li>
+    </ol>
+  </li>
+</ol>
+
+<p>总结来说、首次导入时，所有的顶层代码都会执行，包括在此模块中导入的其他模块的顶层代码；此外，类的定义体也会被执行；除了装饰器函数的定义体会在被装饰的类/函数执行过后执行，<strong>其他的所有函数只会被解释器编译，不会执行函数定义体。</strong></p>
+
+<blockquote>
+  <p><code class="highlighter-rouge">if __name__ == ‘__main__’</code> 属于顶层代码，只是此时这个语句的结果为 False，原因后面会提到。</p>
+</blockquote>
+
+<blockquote>
+  <p>被编译器编译的意思是：将其解析成可执行的字节码，换言之<strong>就是做了全局名称绑定，以便以后要使用时找到它。</strong></p>
+</blockquote>
+
+<blockquote>
+  <p>对于类而言，被编译器编译后，定义了类的属性和方法，并构建了类对象。</p>
+</blockquote>
+
+<h1 id="运行时解析">运行时解析</h1>
+<p>我们直接来看在<strong>系统命令行</strong>运行 <code class="highlighter-rouge">python evaltim.py</code> 会发生什么：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+</pre></td><td class="rouge-code"><pre><span class="o">&lt;</span><span class="p">[</span><span class="mi">100</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">evalsupport</span> <span class="n">module</span> <span class="n">start</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">400</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">MetaAleph</span> <span class="n">body</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">700</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">evalsupport</span> <span class="n">module</span> <span class="n">end</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">evaltime</span> <span class="n">module</span> <span class="n">start</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassOne</span> <span class="n">body</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">6</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassTwo</span> <span class="n">body</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">7</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassThree</span> <span class="n">body</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">200</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">deco_alpha</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">9</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassFour</span> <span class="n">body</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">11</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassOne</span> <span class="n">tests</span> <span class="o">..............................</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassOne</span><span class="o">.</span><span class="n">__init__</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassOne</span><span class="o">.</span><span class="n">method_x</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">12</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassThree</span> <span class="n">tests</span> <span class="o">..............................</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">300</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">deco_alpha</span><span class="p">:</span><span class="n">inner_1</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">13</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassFour</span> <span class="n">tests</span> <span class="o">..............................</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">10</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassFour</span><span class="o">.</span><span class="n">method_y</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">14</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">evaltime</span> <span class="n">module</span> <span class="n">end</span>
+<span class="o">&lt;</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="o">&gt;</span> <span class="n">ClassOne</span><span class="o">.</span><span class="n">__del__</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+<p>下面对上面的代码作出解释：</p>
+
+<ol>
+  <li><strong>第 9 行及之前的输出与首次导入时的输出一致。</strong></li>
+  <li>第 10 行开始运行 <code class="highlighter-rouge">if __name__ == '__main__':</code> 之后的代码</li>
+  <li>11 行是类初始化的标准行为 —— 调用 <code class="highlighter-rouge">__init__</code></li>
+  <li>第 14 行值得注意，其 method_y 没有输出类定义体中的 method_y ,而是执行了<strong>被类装饰器</strong>使用猴子补丁替<strong>换掉的方法 -&gt; inner_1 的。</strong></li>
+  <li>第 16 行也值得注意，装饰器对 ClassThree 子类 ClassFour 好像没有影响。</li>
+  <li>第 18 行，只有在程序结束以后，ClassOne 类的实例才会被垃圾回收程序垃圾回收。</li>
+</ol>
+
+<p><strong>值得注意的是，不管调用多少次 <code class="highlighter-rouge">python evaltim.py</code> 输出的结果都一致。</strong></p>
+
+<h4 id="运行时总结">运行时总结</h4>
+
+<p>运行时的执行规则与导入时基本一致：</p>
+
+<ol>
+  <li>在系统命令行调用 <code class="highlighter-rouge">python evaltim.py</code> 与在 python 命令行调用 <code class="highlighter-rouge">import evaltime</code> 的<strong>执行顺序和执行规则一致</strong>。</li>
+  <li>不同的是，运行时会执行 <code class="highlighter-rouge">if __name__ == '__main__':</code> 代码块的代码。</li>
+</ol>
+
+<p>值得一提的是，如果你将 <code class="highlighter-rouge">if __name__ == '__main__':</code> 代码块的代码<strong>全部都变成顶层代码</strong>，也就是去掉 <code class="highlighter-rouge">if __name__ == '__main__':</code> 这一行，<strong>那么运行时的输出与首次导入时的输出几乎一致，只是最后一行销毁 ClassOne 实例的代码不会输出。</strong></p>
+
+<p>这是因为导入时发生在 python 命令行中，在这里 python 程序在 import 完 evaltime 后还没有结束，不会触发垃圾回收机制。</p>
+
+<p>那么实际上，<strong>python 导入时与运行时的重大差别在于</strong> <code class="highlighter-rouge">if __name__ == '__main__':</code> 代码块的代码是否执行。</p>
+
+<p>接下来我们来探究导入时与运行时特殊变量 <code class="highlighter-rouge">__name__</code> 的情况。</p>
+
+<h1 id="运行时与导入时的差别">运行时与导入时的差别</h1>
+
+<p>现在，我们将 evaltime.py 中的所有代码替换成一句：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+</pre></td><td class="rouge-code"><pre><span class="k">print</span><span class="p">(</span><span class="s">"此时 __name__ 变量的值是："</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">__name__</span><span class="p">))</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<blockquote>
+  <p>repr() 只是将 <code class="highlighter-rouge">__name__</code> 变量的值以字符串的形式返回，不必在意。</p>
+</blockquote>
+
+<p>在 python 命令行中执行 <code class="highlighter-rouge">import evaltime</code>，得到如下结果：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+</pre></td><td class="rouge-code"><pre><span class="err">此时</span> <span class="n">__name__</span> <span class="err">变量的值是：</span> <span class="s">'evaltime'</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>在系统命令行中执行 <code class="highlighter-rouge">python evaltime.py</code> 得到如下结果：</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><table class="rouge-table"><tbody><tr><td class="rouge-gutter gl"><pre class="lineno">1
+</pre></td><td class="rouge-code"><pre><span class="err">此时</span> <span class="n">__name__</span> <span class="err">变量的值是：</span> <span class="s">'__main__'</span>
+</pre></td></tr></tbody></table></code></pre></div></div>
+
+<p>那么由此可见、运行时与导入时最大的不同在于 <code class="highlighter-rouge">__name__</code> 变量的值，在<strong>导入时</strong> python 解释器会为 <code class="highlighter-rouge">__name__</code> 赋值为<strong>模块名（evaltime）</strong>。在运行时 python 解释器会为 <code class="highlighter-rouge">__name__</code> 赋值为 <code class="highlighter-rouge">__main__</code>。</p>
+
+<p>其次、在系统命令行运行 <code class="highlighter-rouge">python evaltime.py</code> 不管多少次输出结果都是一致、而在 python 命令行中运行 <code class="highlighter-rouge">import evaltime</code> 只会在第一次输出结果、后面的重复调用只会检查 <code class="highlighter-rouge">__pycache__</code> 是否有最新的 .pyc 文件，如果有，则什么也不做。</p>
+
+<p>也就是说、python 导入时与运行时的动作几乎一致，都会按照<strong>相同的规则执行模块文件中的所有顶层代码。</strong>但是由于在导入时与运行时 python 解释器为 <code class="highlighter-rouge">__name__</code> 变量赋值不同，<strong>所以我们能够为运行时添加一些导入时所不能做到的操作</strong>，比如定义 Python 的 “Main 函数”。</p>
+
+<h1 id="定义-python-的-main-函数">定义 Python 的 “Main 函数”</h1>
+
+<blockquote>
+  <p>如果你学过 python ，你一定见过 <code class="highlighter-rouge">if __name__ == '__main__':</code> 这句代码，看完上面的文字，你一定已经明白了其原理。</p>
+</blockquote>
+
+<p><strong>C 语言有一个特殊函数的 main 函数</strong>、当操作系统运行 C 程序时会自动执行该函数。</p>
+
+<p>像 C 语言一样有 main 函数的语言不在少数、但是 python 不在其列，python 解释只会想上面的小节描述的一样从头到尾开始执行顶层代码，没有自动执行的特殊函数。</p>
+
+<p><strong>所以、根据执行方式的不同，是否有着不同行为就相当重要了。</strong>好在，python 解释器在导入时与运行时为特殊变量 <code class="highlighter-rouge">__name__</code> 赋值不同，这提供了 python 拥有 Main 函数的方法。</p>
+
+<p>首先，我们必须意识到，<code class="highlighter-rouge">if __name__ == '__main__':</code> 下的代码块<strong>只会在运行时执行</strong>。
+其次，我们需要像其他语言使用 Main 函数一样使用它，即：</p>
+
+<ol>
+  <li><strong>将大部分的代码放入模块的函数或者类中。</strong></li>
+  <li><strong>创建名为 main() 的函数来包含运行时想要执行的代码</strong>，包括调用函数和生成类对象。</li>
+  <li>在 <code class="highlighter-rouge">if __name__ == '__main__':</code> 代码块下调用 main()。</li>
+</ol>
+
+<p>使用上面的准则来定义 Python 的 Main 函数能够<strong>极大程度的解决 python 导入时和运行时动作基本一致的弊端。</strong>（例如:导入时可能执行耗时操作、扰乱终端信息等）</p>
+
+<h1 id="end">End</h1>
+<p>本文中，我总结了 python 导入时与运行时的区别、<strong>指出了导入时会按照一定规则执行所有顶层代码</strong>，紧接着我们实验出了 <strong>python 运行时的行为与导入时相当一致</strong>。</p>
+
+<p>接下来、我分析了导入时与运行时的重点差别 —— <strong>解释器会为 <code class="highlighter-rouge">__name__</code> 属性赋不同的值</strong>。</p>
+
+<p>根据这个的性质，<strong>我引出了 Python Main 函数的使用准则</strong>、<strong>使用这些准则能够很大程度的避免python 导入时和运行时动作基本一致导致的弊端。</strong></p>
+
+:ET
